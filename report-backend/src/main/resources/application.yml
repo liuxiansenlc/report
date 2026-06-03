@@ -1,0 +1,35 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  tomcat:
+    max-http-form-post-size: 50MB
+
+spring:
+  application:
+    name: report-backend
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${REPORT_DB_URL:jdbc:mysql://127.0.0.1:3306/report?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai}
+    username: ${REPORT_DB_USERNAME:report}
+    password: ${REPORT_DB_PASSWORD:}
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+    map-underscore-to-camel-case: true
+
+ai:
+  spark:
+    enabled: ${SPARK_AI_ENABLED:false}
+    url: ${SPARK_AI_URL:https://spark-api-open.xf-yun.com/v2/chat/completions}
+    app-id: ${SPARK_AI_APP_ID:}
+    api-key: ${SPARK_AI_API_KEY:}
+
+security:
+  jwt:
+    secret: ${REPORT_JWT_SECRET:}
