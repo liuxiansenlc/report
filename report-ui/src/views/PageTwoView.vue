@@ -33,32 +33,49 @@
         <div class="left-section s2-plan">
           <div class="sec-title left-title">改良方案情况</div>
           
-          <div class="s2-plan-details static-card-new" v-if="currentPlan">
-            <div class="q-avatar-box">
-              <img src="../assets/images/左上图片.png" class="q-avatar" />
+          <div class="s2-plan-details plan-status-card" v-if="currentPlan">
+            <div class="plan-status-row">
+              <div
+                class="plan-status-item"
+                v-for="item in planStatusItems"
+                :key="item.key"
+                :class="item.key"
+              >
+                <div class="plan-status-label">{{ item.label }}</div>
+                <div class="plan-status-icon">
+                  <span class="icon-core"></span>
+                </div>
+                <div class="plan-status-value">{{ item.value }}</div>
+              </div>
             </div>
-            <div class="q-inner">
-              <div class="q-header">
-                <span class="q-title">{{ currentPlan.name }}</span>
+            <div class="plan-total-row">
+              <span class="plan-total-label">累计制定改良方案：</span>
+              <div class="plan-total-digits">
+                <span v-for="(digit, idx) in planTotalDigits" :key="idx" class="plan-total-digit">{{ digit }}</span>
               </div>
-              <div class="q-date">{{ currentPlan.date }}</div>
-              <div class="q-body">
-                <div class="q-dl-item">
-                  <span class="q-dl-label">检测前</span>
-                  <img v-if="currentPlan.beforeUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.beforeUrl, currentPlan.name + '_检测前报告.pdf')" />
-                  <span v-else class="q-no-file">-</span>
-                </div>
-                <div class="q-dl-item">
-                  <span class="q-dl-label">检测后</span>
-                  <img v-if="currentPlan.afterUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.afterUrl, currentPlan.name + '_检测后报告.pdf')" />
-                  <span v-else class="q-no-file">-</span>
-                </div>
-                <div class="q-dl-item">
-                  <span class="q-dl-label">改良方案</span>
-                  <img v-if="currentPlan.planUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.planUrl, currentPlan.name + '_改良方案.pdf')" />
-                  <span v-else class="q-no-file">-</span>
-                </div>
-              </div>
+            </div>
+            <div class="plan-download-row">
+              <button
+                class="plan-download-btn"
+                :disabled="!currentPlan.beforeUrl"
+                @click="downloadPlanFile('before')"
+              >
+                检测前
+              </button>
+              <button
+                class="plan-download-btn"
+                :disabled="!currentPlan.afterUrl"
+                @click="downloadPlanFile('after')"
+              >
+                检测后
+              </button>
+              <button
+                class="plan-download-btn primary"
+                :disabled="!currentPlan.planUrl"
+                @click="downloadPlanFile('plan')"
+              >
+                下载方案
+              </button>
             </div>
           </div>
         </div>
@@ -322,7 +339,7 @@
         
         <!-- 区块3：底部四列对比 -->
         <div class="bottom-elements-section">
-           <div class="section-title">硅、镁、钙、硼元素</div>
+           <div class="section-title">钙、镁、硅、硼元素</div>
            
            <!-- 列标题行 -->
            <div class="elements-header">
@@ -432,10 +449,10 @@ const chartRiskRef = ref(null)
 const chartNpkRef = ref(null)
 
 const bottomElements = ref([
-  { name: '有效硅', old: 21.2, new: 22.3, oldPct: '60%', newPct: '80%', diff: '+2.5%' },
-  { name: '有效硼', old: 22.2, new: 23.6, oldPct: '70%', newPct: '90%', diff: '+2.5%' },
   { name: '钙元素', old: 20.8, new: 19.6, oldPct: '60%', newPct: '50%', diff: '+2.5%' },
-  { name: '镁元素', old: 20.8, new: 19.6, oldPct: '60%', newPct: '50%', diff: '+2.5%' }
+  { name: '镁元素', old: 20.8, new: 19.6, oldPct: '60%', newPct: '50%', diff: '+2.5%' },
+  { name: '有效硅', old: 21.2, new: 22.3, oldPct: '60%', newPct: '80%', diff: '+2.5%' },
+  { name: '有效硼', old: 22.2, new: 23.6, oldPct: '70%', newPct: '90%', diff: '+2.5%' }
 ])
 
 const toggleDropdown = () => {
@@ -464,6 +481,64 @@ const downloadFile = (url, name) => {
 }
 
 const currentPlan = ref(null)
+const planSummary = ref({
+  detect: 0,
+  analyze: 0,
+  formulate: 0,
+  running: 0,
+  done: 0,
+  total: 0
+})
+
+const planTotalDigits = computed(() => String(planSummary.value.total || 0).padStart(6, '0').split(''))
+
+const planStatusItems = computed(() => [
+  { key: 'detect', label: '检测', value: planSummary.value.detect },
+  { key: 'analyze', label: '分析', value: planSummary.value.analyze },
+  { key: 'formulate', label: '方案制定', value: planSummary.value.formulate },
+  { key: 'running', label: '执行中', value: planSummary.value.running },
+  { key: 'done', label: '已完成', value: planSummary.value.done }
+])
+
+const downloadPlanFile = (type) => {
+  if (!currentPlan.value) return
+  if (type === 'before' && currentPlan.value.beforeUrl) {
+    downloadFile(currentPlan.value.beforeUrl, currentPlan.value.name + '_检测前报告.pdf')
+  } else if (type === 'after' && currentPlan.value.afterUrl) {
+    downloadFile(currentPlan.value.afterUrl, currentPlan.value.name + '_检测后报告.pdf')
+  } else if (type === 'plan' && currentPlan.value.planUrl) {
+    downloadFile(currentPlan.value.planUrl, currentPlan.value.name + '_改良方案.pdf')
+  }
+}
+
+const loadPlanSummary = async () => {
+  try {
+    const res = await fetch('/api/datasource/improvement-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    const json = await res.json()
+    if (json.code === 200 && Array.isArray(json.data)) {
+      const list = json.data
+      const detect = list.filter(item => item.beforeUrl || item.afterUrl).length
+      const analyze = list.filter(item => item.afterUrl).length || detect
+      const formulate = list.filter(item => item.planUrl).length
+      const done = list.filter(item => item.beforeUrl && item.afterUrl && item.planUrl).length
+      const running = Math.max(0, formulate - done)
+      planSummary.value = {
+        detect,
+        analyze,
+        formulate,
+        running,
+        done,
+        total: formulate
+      }
+    }
+  } catch (e) {
+    console.error('获取改良方案统计失败:', e)
+  }
+}
 
 const loadImprovementPlan = async (farm) => {
   if (!farm) return
@@ -776,10 +851,10 @@ const loadTraceElements = async (farm) => {
       const parseVal = (v) => parseFloat(v) || 0
       
       const elements = [
-        { key: 'avail_sulfur', name: '有效硅' },
-        { key: 'avail_boron', name: '有效硼' },
         { key: 'avail_calcium', name: '钙元素' },
-        { key: 'avail_magnesium', name: '镁元素' }
+        { key: 'avail_magnesium', name: '镁元素' },
+        { key: 'avail_sulfur', name: '有效硅' },
+        { key: 'avail_boron', name: '有效硼' }
       ]
       
       bottomElements.value = elements.map(el => {
@@ -1008,6 +1083,7 @@ const closeDropdowns = (e) => {
 onMounted(() => {
   window.addEventListener('click', closeDropdowns)
   loadFarmList()
+  loadPlanSummary()
   
   if (chartPhRef.value) {
     chartPhInstance = echarts.init(chartPhRef.value)
@@ -1582,95 +1658,233 @@ onUnmounted(() => {
 }
 
 .s2-plan-details {
-  margin-top: 50px;
+  margin-top: 42px;
 }
 
-/* 新的背景图卡片样式 car_bg_new_3.png */
-.static-card-new {
+.plan-status-card {
   width: 100%;
   height: 160px;
-  background: url('../assets/images/car_bg_new_3.png') no-repeat center;
-  background-size: 100% 100%;
+  padding: 14px 20px 10px;
+  box-sizing: border-box;
+  background:
+    linear-gradient(135deg, rgba(0, 215, 255, 0.16), transparent 22%),
+    linear-gradient(180deg, rgba(5, 30, 70, 0.78), rgba(2, 15, 36, 0.62));
+  border: 1px solid rgba(0, 192, 255, 0.58);
+  box-shadow:
+    0 0 18px rgba(0, 170, 255, 0.34),
+    inset 0 0 22px rgba(0, 120, 255, 0.16);
   position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.static-card-new .q-avatar-box {
-  position: absolute;
-  left: 18px; 
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
   overflow: hidden;
+}
+
+.plan-status-card::before,
+.plan-status-card::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  width: 72px;
+  height: 2px;
+  background: #5ef8ff;
+  box-shadow: 0 0 10px #00eaff;
+}
+
+.plan-status-card::before { left: 0; }
+.plan-status-card::after { right: 0; }
+
+.plan-status-row {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
-.static-card-new .q-avatar {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.static-card-new .q-inner {
-  margin-left: 140px; 
-  flex: 1;
+.plan-status-item {
+  width: 62px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding-right: 20px;
+  align-items: center;
+  cursor: default;
 }
 
-.static-card-new .q-header {
-  margin-bottom: 5px;
-  margin-top: -10px; 
-  text-align: center;
-}
-
-.static-card-new .q-title {
-  font-size: 16px;
+.plan-status-label {
+  height: 18px;
+  font-size: 12px;
   color: #fff;
   font-weight: bold;
-  letter-spacing: 2px;
+  white-space: nowrap;
+  text-shadow: 0 0 6px rgba(0, 220, 255, 0.65);
 }
 
-.static-card-new .q-date {
-  font-size: 12px;
-  color: #cce8ff;
-  text-align: center;
-  margin-bottom: 15px;
+.plan-status-icon {
+  width: 42px;
+  height: 42px;
+  margin-top: 5px;
+  position: relative;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(0, 244, 255, 0.34) 0 24%, rgba(0, 105, 210, 0.28) 25% 48%, transparent 50%),
+    conic-gradient(from 180deg, transparent, rgba(0, 250, 255, 0.9), transparent 42%, rgba(0, 132, 255, 0.55), transparent 75%);
+  box-shadow: 0 0 18px rgba(0, 220, 255, 0.45);
 }
 
-.static-card-new .q-body {
+.plan-status-icon::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -7px;
+  width: 1px;
+  height: 56px;
+  background: linear-gradient(180deg, transparent, rgba(0, 220, 255, 0.8), transparent);
+  transform: translateX(-50%);
+}
+
+.plan-status-icon::after {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(110, 255, 255, 0.6);
+}
+
+.icon-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+}
+
+.detect .icon-core {
+  border-radius: 50%;
+  background: #ffd84c;
+  box-shadow: 0 0 12px rgba(255, 216, 76, 0.8);
+}
+
+.analyze .icon-core::before,
+.analyze .icon-core::after {
+  content: '';
+  position: absolute;
+  background: #ffd84c;
+  box-shadow: 0 0 8px rgba(255, 216, 76, 0.8);
+}
+
+.analyze .icon-core::before {
+  width: 18px;
+  height: 2px;
+  top: 8px;
+  left: -1px;
+  transform: rotate(-28deg);
+}
+
+.analyze .icon-core::after {
+  width: 2px;
+  height: 20px;
+  left: 8px;
+  top: -2px;
+  transform: rotate(28deg);
+}
+
+.formulate .icon-core {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #ffd84c;
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(255, 216, 76, 0.7);
+}
+
+.running .icon-core {
+  border-left: 14px solid #ffd84c;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  filter: drop-shadow(0 0 8px rgba(255, 216, 76, 0.8));
+}
+
+.done .icon-core {
+  width: 18px;
+  height: 10px;
+  border-left: 3px solid #ffd84c;
+  border-bottom: 3px solid #ffd84c;
+  transform: translate(-50%, -58%) rotate(-45deg);
+  filter: drop-shadow(0 0 8px rgba(255, 216, 76, 0.8));
+}
+
+.plan-status-value {
+  margin-top: 5px;
+  font-size: 19px;
+  color: #f4fbff;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-weight: bold;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.45);
+}
+
+.plan-total-row {
+  margin-top: 6px;
   display: flex;
-  justify-content: space-around;
   align-items: center;
-  width: 100%;
-}
-
-.static-card-new .q-dl-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  justify-content: center;
   gap: 8px;
 }
 
-.static-card-new .q-dl-label {
-  font-size: 13px;
-  color: #cce8ff;
+.plan-total-label {
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
 }
 
-.static-card-new .q-icon-btn {
-  width: 24px;
+.plan-total-digits {
+  display: flex;
+  gap: 4px;
+}
+
+.plan-total-digit {
+  width: 18px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  color: #ffe85c;
+  font-size: 17px;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-weight: bold;
+  background: linear-gradient(180deg, rgba(0, 160, 255, 0.35), rgba(0, 60, 130, 0.55));
+  border: 1px solid rgba(0, 220, 255, 0.55);
+  box-shadow: inset 0 0 8px rgba(0, 220, 255, 0.25), 0 0 6px rgba(0, 170, 255, 0.25);
+}
+
+.plan-download-row {
+  margin-top: 7px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.plan-download-btn {
   height: 24px;
+  min-width: 66px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 210, 255, 0.55);
+  background: linear-gradient(180deg, rgba(0, 145, 255, 0.28), rgba(0, 48, 110, 0.42));
+  color: #dffcff;
+  font-size: 12px;
+  font-weight: bold;
   cursor: pointer;
-  transition: transform 0.2s;
+  box-shadow: inset 0 0 8px rgba(0, 210, 255, 0.18), 0 0 6px rgba(0, 170, 255, 0.22);
 }
 
-.static-card-new .q-icon-btn:hover {
-  transform: scale(1.1);
+.plan-download-btn.primary {
+  color: #ffe85c;
+  border-color: rgba(255, 220, 80, 0.65);
+}
+
+.plan-download-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(0, 220, 255, 0.4), rgba(0, 85, 160, 0.58));
+}
+
+.plan-download-btn:disabled {
+  color: rgba(190, 220, 235, 0.45);
+  border-color: rgba(80, 140, 170, 0.28);
+  background: rgba(8, 30, 58, 0.35);
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* 从左看板引入的卡片样式，单体无滚动版 */

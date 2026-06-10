@@ -75,7 +75,8 @@ export class ExtrudeMap {
         center,
         centroid: feature.properties.centroid || feature.properties.center,
         adcode,
-        childrenNum: feature.properties.childrenNum
+        childrenNum: feature.properties.childrenNum,
+        geometry: feature.geometry
       }
       // 存材质的默认发光颜色
       group.userData.materialEmissiveHex = this.config.topFaceMaterial.emissive.getHex()

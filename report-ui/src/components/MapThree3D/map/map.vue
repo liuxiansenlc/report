@@ -1,5 +1,5 @@
 <template>
-  <div class="map-level">
+  <div class="map-level" @click="handleMapLevelClick">
     <canvas ref="canvasRef" class="map-canvas"></canvas>
     <div ref="returnBtnRef" class="return-btn" @click="goBack">返回上一级</div>
   </div>
@@ -228,6 +228,10 @@ const worldConfig = computed(() => ({
 // 返回上一级
 const goBack = () => {
   app && app.goBack()
+}
+
+const handleMapLevelClick = () => {
+  app && app.handleCanvasBlankClick && app.handleCanvasBlankClick()
 }
 
 function createWorld(canvas,config) {

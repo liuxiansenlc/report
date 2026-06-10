@@ -263,8 +263,9 @@ const initConfig = async () => {
         baseLabelNameScale: 0.08,
         baseLabelNameColor: '#5fc6dc',
         drill: {
-          isDrill: false, // 不下钻
-          drillLevel: 2
+          isDrill: true,
+          drillLevel: 1,
+          focusProvinceOnly: true
         },
         label: {
           areaName: true,

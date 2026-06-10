@@ -1,5 +1,5 @@
 <template>
-  <div class="left-panel">
+  <div class="left-panel" @click="activeBenefitType = ''">
     <!-- 第一块：服务农场 -->
     <div class="panel-section sec-1">
       <div class="panel-title">
@@ -110,19 +110,53 @@
       </div>
       <div class="benefit-container">
         <!-- 产量 -->
-        <div class="benefit-item item-top">
-          <div class="b-value">{{ bVal1 }}</div>
+        <div
+          class="benefit-item item-top"
+          :class="{ active: activeBenefitType === 'yield' }"
+          @click.stop
+          @click="showBenefitDistribution('yield')"
+        >
+          <div class="b-value"><span>{{ bVal1 }}</span></div>
           <div class="b-label">新增农作物产量(吨)</div>
         </div>
         <!-- 化肥 -->
-        <div class="benefit-item item-bl">
-          <div class="b-value">{{ bVal2 }}</div>
+        <div
+          class="benefit-item item-bl"
+          :class="{ active: activeBenefitType === 'fertilizer' }"
+          @click.stop
+          @click="showBenefitDistribution('fertilizer')"
+        >
+          <div class="b-value"><span>{{ bVal2 }}</span></div>
           <div class="b-label">减少化肥使用量(吨)</div>
         </div>
         <!-- 经济效益 -->
-        <div class="benefit-item item-br">
-          <div class="b-value">{{ bVal3 }}</div>
+        <div
+          class="benefit-item item-br"
+          :class="{ active: activeBenefitType === 'revenue' }"
+          @click.stop
+          @click="showBenefitDistribution('revenue')"
+        >
+          <div class="b-value"><span>{{ bVal3 }}</span></div>
           <div class="b-label">新增经济效益(万)</div>
+        </div>
+
+        <div class="benefit-distribution" v-if="activeBenefitType" @click.stop>
+          <div class="bd-header">
+            <span>{{ activeBenefitTitle }}农场分布</span>
+            <button class="bd-close" @click="activeBenefitType = ''">×</button>
+          </div>
+          <div class="bd-list">
+            <div class="bd-row" v-for="item in activeBenefitRows" :key="item.name">
+              <div class="bd-row-top">
+                <span class="bd-name">{{ item.name }}</span>
+                <span class="bd-value">{{ item.value }}{{ activeBenefitUnit }}</span>
+              </div>
+              <div class="bd-bar">
+                <div class="bd-bar-fill" :style="{ width: item.percent + '%' }"></div>
+              </div>
+            </div>
+          </div>
+          <div class="bd-note">按农场面积权重展示</div>
         </div>
       </div>
     </div>
@@ -137,6 +171,7 @@ const farmTotalCount = ref(0)
 const farmTotalArea = ref('0.0')
 const farmVarietyCount = ref(0)
 const farmCards = ref([])
+const farmDistributionSource = ref([])
 
 // 累计制定改良方案个数
 const targetValue = ref('0000')
@@ -156,6 +191,49 @@ const bVal3 = ref(0)
 const targetBVal1 = ref(0)
 const targetBVal2 = ref(0)
 const targetBVal3 = ref(0)
+const activeBenefitType = ref('')
+const activeBenefitRows = ref([])
+
+const benefitMeta = {
+  yield: { title: '新增农作物产量', unit: '吨', target: targetBVal1 },
+  fertilizer: { title: '减少化肥使用量', unit: '吨', target: targetBVal2 },
+  revenue: { title: '新增经济效益', unit: '万', target: targetBVal3 }
+}
+
+const activeBenefitTitle = ref('')
+const activeBenefitUnit = ref('')
+
+const showBenefitDistribution = (type) => {
+  if (activeBenefitType.value === type) {
+    activeBenefitType.value = ''
+    return
+  }
+
+  const meta = benefitMeta[type]
+  if (!meta) return
+
+  activeBenefitType.value = type
+  activeBenefitTitle.value = meta.title
+  activeBenefitUnit.value = meta.unit
+
+  const farms = farmDistributionSource.value.length
+    ? farmDistributionSource.value
+    : [{ name: '暂无农场数据', area: 1 }]
+  const totalArea = farms.reduce((sum, item) => sum + item.area, 0) || 1
+  const totalValue = parseFloat(meta.target.value) || 0
+
+  activeBenefitRows.value = farms
+    .map(item => {
+      const value = totalValue * item.area / totalArea
+      return {
+        name: item.name,
+        value: value.toFixed(2),
+        percent: totalValue > 0 ? Math.max(3, Math.min(100, value / totalValue * 100)) : 0
+      }
+    })
+    .sort((a, b) => parseFloat(b.value) - parseFloat(a.value))
+    .slice(0, 5)
+}
 
 const animateBottomNumbers = () => {
   // Only animate if we have targets > 0, otherwise just stay at 0
@@ -279,6 +357,11 @@ const loadFarmData = async () => {
           img: item.imageUrl || getImageUrl('左上图片.png')
         })
       })
+
+      farmDistributionSource.value = list.map(item => ({
+        name: item.farmName || '未知农场',
+        area: Math.max(0, parseFloat(item.farmArea) || 0)
+      })).filter(item => item.area > 0)
       
       farmTotalArea.value = totalA.toFixed(1)
       farmVarietyCount.value = cropSet.size
@@ -694,46 +777,240 @@ const qualityCards = ref([])
   flex: 1;
   position: relative;
   width: 100%;
-  height: 100%;
+  height: 150px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 28px 24px 0;
+  box-sizing: border-box;
 }
 
 .benefit-item {
-  position: absolute;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 112px;
+  min-width: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+  z-index: 2;
+}
+
+.benefit-item:hover,
+.benefit-item.active {
+  transform: translateY(-4px);
+  filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.45));
+}
+
+.benefit-item.active .b-value::after {
+  border-color: rgba(255, 220, 85, 0.65);
+  box-shadow:
+    0 0 10px rgba(255, 220, 85, 0.4),
+    inset 0 0 8px rgba(0, 110, 220, 0.16);
 }
 
 .b-value {
-  font-size: 28px;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  font-size: 22px;
   font-family: 'Arial Narrow', Arial, sans-serif;
   font-weight: bold;
-  color: #ffffff;
-  text-shadow: 0 0 10px rgba(0, 162, 255, 0.8), 0 0 20px rgba(0, 255, 255, 0.5);
-  margin-bottom: 35px; 
+  color: #eaf8ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(7, 27, 55, 0.92) 0 52%, rgba(2, 34, 68, 0.7) 53% 62%, transparent 63%);
+  box-shadow:
+    0 0 10px rgba(0, 170, 255, 0.28),
+    inset 0 0 12px rgba(0, 0, 0, 0.45);
+  isolation: isolate;
+}
+
+.b-value span {
+  position: relative;
+  z-index: 3;
+  display: block;
+  padding-top: 1px;
+}
+
+.b-value::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  z-index: 1;
+  background:
+    conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      transparent 34deg,
+      rgba(0, 255, 255, 0.3) 52deg,
+      #33f6ff 72deg,
+      rgba(0, 158, 255, 0.14) 96deg,
+      transparent 128deg,
+      transparent 218deg,
+      rgba(0, 255, 255, 0.18) 238deg,
+      rgba(85, 255, 255, 0.75) 252deg,
+      transparent 284deg,
+      transparent 360deg
+    );
+  -webkit-mask: radial-gradient(circle, transparent 0 55%, #000 57% 68%, transparent 70%);
+  mask: radial-gradient(circle, transparent 0 55%, #000 57% 68%, transparent 70%);
+  animation: benefitRingSpin 2.8s linear infinite;
+}
+
+.b-value::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  z-index: 2;
+  border: 1px solid rgba(0, 210, 255, 0.28);
+  border-left-color: rgba(0, 210, 255, 0.06);
+  border-bottom-color: rgba(0, 210, 255, 0.08);
+  background: transparent;
+  box-shadow:
+    0 0 8px rgba(0, 210, 255, 0.18),
+    inset 0 0 8px rgba(0, 110, 220, 0.16);
+  pointer-events: none;
+}
+
+@keyframes benefitRingSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.benefit-distribution {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 8px;
+  z-index: 8;
+  padding: 10px 12px 8px;
+  background: linear-gradient(180deg, rgba(5, 28, 63, 0.96), rgba(2, 16, 38, 0.92));
+  border: 1px solid rgba(0, 198, 255, 0.65);
+  box-shadow:
+    0 0 14px rgba(0, 180, 255, 0.38),
+    inset 0 0 18px rgba(0, 150, 255, 0.18);
+  backdrop-filter: blur(4px);
+}
+
+.benefit-distribution::before,
+.benefit-distribution::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  width: 34px;
+  height: 1px;
+  background: #73faff;
+  box-shadow: 0 0 8px #00eaff;
+}
+
+.benefit-distribution::before { left: 0; }
+.benefit-distribution::after { right: 0; }
+
+.bd-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: #dffcff;
+  font-size: 13px;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(0, 234, 255, 0.65);
+}
+
+.bd-close {
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  padding: 0;
+  border: 1px solid rgba(0, 220, 255, 0.5);
+  background: rgba(0, 60, 120, 0.35);
+  color: #aef8ff;
+  cursor: pointer;
+}
+
+.bd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bd-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.bd-name {
+  max-width: 170px;
+  color: #c8ecff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-value {
+  color: #fff;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-weight: bold;
+}
+
+.bd-bar {
+  height: 5px;
+  background: rgba(15, 69, 110, 0.7);
+  overflow: hidden;
+}
+
+.bd-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00b6ff, #65fff1);
+  box-shadow: 0 0 8px rgba(0, 234, 255, 0.65);
+}
+
+.bd-note {
+  margin-top: 6px;
+  color: rgba(185, 230, 255, 0.65);
+  font-size: 11px;
+  text-align: right;
 }
 
 .b-label {
+  width: 118px;
   font-size: 12px;
   color: #ffffff; 
-  letter-spacing: 1px;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 0 6px rgba(0, 162, 255, 0.55);
 }
 
 .item-top {
-  top: 35px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: auto;
+  left: auto;
+  transform: none;
 }
 
 .item-bl {
-  top: 100px;
-  left: 85px;
-  transform: translateX(-50%); 
+  top: auto;
+  left: auto;
+  transform: none;
 }
 
 .item-br {
-  top: 100px;
-  right: 85px;
-  transform: translateX(50%); 
+  top: auto;
+  right: auto;
+  transform: none;
 }
 </style>

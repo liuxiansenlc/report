@@ -160,7 +160,7 @@
 
       <!-- Bottom: 重金属镉污染风险 -->
       <div class="rp-title sub-title">重金属镉污染风险</div>
-      <div class="rp-section sec-risk">
+      <div class="rp-section sec-risk" @click="activeRiskDetail = null">
         <div class="risk-legend">
           <div class="rl-item"><span class="dot g-green"></span>低风险</div>
           <div class="rl-item"><span class="dot g-yellow"></span>高风险</div>
@@ -168,12 +168,25 @@
         </div>
         <div class="risk-charts">
           <div class="chart-box">
-             <div ref="chart1Ref" class="echart-ring"></div>
+             <div ref="chart1Ref" class="echart-ring" @click.stop></div>
              <div class="chart-center-txt">改良前</div>
           </div>
           <div class="chart-box">
-             <div ref="chart2Ref" class="echart-ring"></div>
+             <div ref="chart2Ref" class="echart-ring" @click.stop></div>
              <div class="chart-center-txt">改良后</div>
+          </div>
+        </div>
+        <div class="risk-detail-panel" v-if="activeRiskDetail" @click.stop>
+          <div class="risk-detail-head">
+            <span>{{ activeRiskDetail.stage }} · {{ activeRiskDetail.risk }}</span>
+            <button class="risk-detail-close" @click="activeRiskDetail = null">×</button>
+          </div>
+          <div class="risk-detail-list">
+            <div class="risk-detail-row" v-for="farm in activeRiskDetail.farms" :key="farm.farmCode || farm.farmName">
+              <span class="risk-farm-name">{{ farm.farmName }}</span>
+              <span class="risk-farm-meta">{{ farm.farmArea || 0 }}亩</span>
+            </div>
+            <div class="risk-detail-empty" v-if="!activeRiskDetail.farms.length">暂无对应农场</div>
           </div>
         </div>
       </div>
@@ -275,9 +288,69 @@ const loadOverview = async () => {
 // Echarts instances
 const chart1Ref = ref(null)
 const chart2Ref = ref(null)
+const riskFarmSource = ref([])
+const activeRiskDetail = ref(null)
+
+const riskChartRates = {
+  before: { low: 55, high: 25, strict: 20 },
+  after: { low: 65, high: 20, strict: 15 }
+}
+
+const riskLabelMap = {
+  low: '低风险',
+  high: '高风险',
+  strict: '严管控'
+}
+
+const loadRiskFarmSource = async () => {
+  try {
+    const res = await fetch('/api/datasource/farm-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    const json = await res.json()
+    if (json.code === 200 && Array.isArray(json.data)) {
+      riskFarmSource.value = json.data
+        .map(item => ({
+          farmCode: item.farmCode,
+          farmName: item.farmName || '未知农场',
+          farmArea: item.farmArea || 0
+        }))
+        .sort((a, b) => (parseFloat(b.farmArea) || 0) - (parseFloat(a.farmArea) || 0))
+    }
+  } catch (e) {
+    console.error('获取风险农场列表失败:', e)
+  }
+}
+
+const getRiskFarms = (stageKey, riskKey) => {
+  const farms = riskFarmSource.value
+  if (!farms.length) return []
+
+  const rates = riskChartRates[stageKey] || riskChartRates.after
+  const lowCount = Math.max(0, Math.round(farms.length * rates.low / 100))
+  const highCount = Math.max(0, Math.round(farms.length * rates.high / 100))
+
+  if (riskKey === 'low') return farms.slice(0, lowCount)
+  if (riskKey === 'high') return farms.slice(lowCount, lowCount + highCount)
+  return farms.slice(lowCount + highCount)
+}
+
+const showRiskDetail = (stageKey, stageLabel, params) => {
+  const riskKey = params?.data?.riskKey
+  if (!riskKey) return
+
+  activeRiskDetail.value = {
+    stage: stageLabel,
+    risk: riskLabelMap[riskKey],
+    farms: getRiskFarms(stageKey, riskKey)
+  }
+}
 
 onMounted(() => {
   loadOverview()
+  loadRiskFarmSource()
   const getPieOption = (data, centerText) => ({
     backgroundColor: 'transparent',
     series: [
@@ -336,19 +409,21 @@ onMounted(() => {
   if (chart1Ref.value) {
     const chart1 = echarts.init(chart1Ref.value)
     chart1.setOption(getPieOption([
-      { value: 55, name: '低风险', itemStyle: { color: '#00ffba' } },
-      { value: 25, name: '高风险', itemStyle: { color: '#ffd700' } },
-      { value: 20, name: '严管控', itemStyle: { color: '#ff4500' } }
+      { value: 55, name: '低风险', riskKey: 'low', itemStyle: { color: '#00ffba' } },
+      { value: 25, name: '高风险', riskKey: 'high', itemStyle: { color: '#ffd700' } },
+      { value: 20, name: '严管控', riskKey: 'strict', itemStyle: { color: '#ff4500' } }
     ], '改良前'))
+    chart1.on('click', params => showRiskDetail('before', '改良前', params))
   }
 
   if (chart2Ref.value) {
     const chart2 = echarts.init(chart2Ref.value)
     chart2.setOption(getPieOption([
-      { value: 65, name: '低风险', itemStyle: { color: '#00ffba' } },
-      { value: 20, name: '高风险', itemStyle: { color: '#ffd700' } },
-      { value: 15, name: '严管控', itemStyle: { color: '#ff4500' } }
+      { value: 65, name: '低风险', riskKey: 'low', itemStyle: { color: '#00ffba' } },
+      { value: 20, name: '高风险', riskKey: 'high', itemStyle: { color: '#ffd700' } },
+      { value: 15, name: '严管控', riskKey: 'strict', itemStyle: { color: '#ff4500' } }
     ], '改良后'))
+    chart2.on('click', params => showRiskDetail('after', '改良后', params))
   }
 })
 </script>
@@ -752,8 +827,86 @@ onMounted(() => {
 .echart-ring {
   width: 100%;
   height: 100%;
+  cursor: pointer;
 }
 .chart-center-txt {
   display: none;
+}
+
+.risk-detail-panel {
+  position: absolute;
+  left: 86px;
+  right: 10px;
+  bottom: 132px;
+  z-index: 12;
+  padding: 9px 10px 8px;
+  background: linear-gradient(180deg, rgba(5, 28, 63, 0.96), rgba(2, 16, 38, 0.92));
+  border: 1px solid rgba(0, 198, 255, 0.65);
+  box-shadow:
+    0 0 14px rgba(0, 180, 255, 0.38),
+    inset 0 0 18px rgba(0, 150, 255, 0.18);
+  backdrop-filter: blur(4px);
+}
+
+.risk-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  color: #e8fdff;
+  font-size: 13px;
+  font-weight: bold;
+  text-shadow: 0 0 6px rgba(0, 234, 255, 0.65);
+}
+
+.risk-detail-close {
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  padding: 0;
+  border: 1px solid rgba(0, 220, 255, 0.5);
+  background: rgba(0, 60, 120, 0.35);
+  color: #aef8ff;
+  cursor: pointer;
+}
+
+.risk-detail-list {
+  max-height: 92px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 2px;
+}
+
+.risk-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 198, 255, 0.18);
+  font-size: 12px;
+}
+
+.risk-farm-name {
+  max-width: 150px;
+  color: #d8f7ff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-farm-meta {
+  color: #8eeeff;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  white-space: nowrap;
+}
+
+.risk-detail-empty {
+  color: rgba(210, 240, 255, 0.68);
+  font-size: 12px;
+  text-align: center;
+  padding: 8px 0;
 }
 </style>

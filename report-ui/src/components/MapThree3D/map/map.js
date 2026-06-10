@@ -97,7 +97,8 @@ export class World extends Mini3d {
 
     this.drill = {
       isDrill: drill.isDrill === undefined ? true : !!drill.isDrill,
-      drillLevel: clampedLevel
+      drillLevel: clampedLevel,
+      focusProvinceOnly: drill.focusProvinceOnly === undefined ? false : !!drill.focusProvinceOnly
     }
     this.provinceLineColor = config?.style?.provinceLineColor || '#2bc4dc'
     this.provinceLineWidth = typeof config?.style?.provinceLineWidth === 'number' ? config.style.provinceLineWidth : 1
@@ -1505,10 +1506,22 @@ export class World extends Mini3d {
       this.interactionManager.add(mesh)
       mesh.addEventListener('mousedown', event => {
         if (!this.drill.isDrill || this.clicked || !this.mainSceneGroup.visible) return false
+        if (this.provinceFocusState) {
+          const currentCode = String(this.provinceFocusState.targetCode || '')
+          const hitCode = String(event.target?.parent?.userData?.adcode || '')
+          if (currentCode && hitCode === currentCode) {
+            this._lastMapAreaClickAt = Date.now()
+          }
+          return false
+        }
         this.clicked = true
+        this._lastMapAreaClickAt = Date.now()
         let userData = event.target.parent.userData
         this.history.push(userData)
         this.loadChildMap(userData)
+        if (this.drill.focusProvinceOnly) {
+          this._provinceFocusClickGuardUntil = Date.now() + 450
+        }
       })
       mesh.addEventListener('mouseup', ev => {
         this.clicked = false
@@ -1557,6 +1570,12 @@ export class World extends Mini3d {
   // 加载子地图
   async loadChildMap(userData) {
     if (!this.drill.isDrill) {
+      this.clicked = false
+      return
+    }
+
+    if (this.drill.focusProvinceOnly) {
+      this.focusProvince(userData)
       this.clicked = false
       return
     }
@@ -1668,6 +1687,12 @@ export class World extends Mini3d {
 
   // 返回上一级
   goBack() {
+    if (this.provinceFocusState) {
+      this.restoreProvinceFocus()
+      this.camera.controls.reset()
+      return
+    }
+
     this.history.undo()
     if (!this.history.getIndex()) {
       this.currentScene = 'mainScene'
@@ -1685,6 +1710,188 @@ export class World extends Mini3d {
     }
 
     this.camera.controls.reset()
+  }
+
+  focusProvince(userData) {
+    const targetCode = String(userData?.adcode || '')
+    if (!targetCode || !this.provinceMesh?.mapGroup) return
+
+    this.restoreProvinceFocus(false)
+
+    const mapGroup = this.provinceMesh.mapGroup
+    const targetGroup = mapGroup.children.find(group => String(group?.userData?.adcode || '') === targetCode)
+    if (!targetGroup) return
+    const root = this.mainMapRoot || mapGroup
+
+    const original = {
+      targetCode,
+      rootPosition: root.position.clone(),
+      rootScale: root.scale.clone(),
+      groups: mapGroup.children.map(group => ({
+        group,
+        visible: group.visible,
+        position: group.position.clone(),
+        scale: group.scale.clone()
+      })),
+      labels: this.provinceNameGroup?.children?.map(label => ({
+        label,
+        visible: label.visible,
+        scale: label.scale.clone(),
+        wrapStyle: label.element?.querySelector?.('.provinces-name-label-wrap')?.getAttribute('style') || ''
+      })) || [],
+      layerPoints: this._layerGroup?.children?.map(point => ({
+        point,
+        visible: point.visible
+      })) || []
+    }
+
+    this.provinceFocusState = original
+    this.currentScene = 'provinceFocus'
+    if (this.returnBtn?.style) this.returnBtn.style.display = 'block'
+
+    mapGroup.children.forEach(group => {
+      group.visible = String(group?.userData?.adcode || '') === targetCode
+    })
+
+    this.provinceNameGroup?.children?.forEach(label => {
+      const isTarget = String(label?.userData?.adcode || '') === targetCode
+      label.visible = isTarget
+      if (isTarget) {
+        const wrap = label.element?.querySelector?.('.provinces-name-label-wrap')
+        if (wrap) {
+          wrap.style.color = '#e8fbff'
+          wrap.style.fontWeight = '700'
+          wrap.style.fontSize = '18px'
+          wrap.style.textShadow = '0 0 6px rgba(0,255,255,.9), 0 0 16px rgba(0,128,255,.75), 0 2px 2px rgba(0,0,0,.9)'
+          wrap.style.letterSpacing = '0'
+        }
+      }
+    })
+
+    this._layerGroup?.children?.forEach(point => {
+      point.visible = this.isGeoPointInGeometry(point.userData.lng, point.userData.lat, targetGroup.userData.geometry)
+    })
+
+    const bound = getBoundBox(targetGroup)
+    const currentScale = root.scale.x || 1
+    const targetScale = currentScale * 5.2
+    const scaleRatio = targetScale / currentScale
+
+    gsap.to(root.scale, {
+      duration: 0.55,
+      x: targetScale,
+      y: targetScale,
+      z: root.scale.z || 1,
+      ease: 'power2.out'
+    })
+    gsap.to(root.position, {
+      duration: 0.55,
+      x: root.position.x - bound.center.x * (this.scale || 1) * (scaleRatio - 1),
+      y: root.position.y - bound.center.y * (this.scale || 1) * (scaleRatio - 1),
+      ease: 'power2.out'
+    })
+  }
+
+  restoreProvinceFocus(animate = true) {
+    const state = this.provinceFocusState
+    if (!state) return
+
+    const root = this.mainMapRoot || this.provinceMesh?.mapGroup
+    if (root) {
+      if (animate) {
+        gsap.to(root.scale, {
+          duration: 0.45,
+          x: state.rootScale.x,
+          y: state.rootScale.y,
+          z: state.rootScale.z,
+          ease: 'power2.out'
+        })
+        gsap.to(root.position, {
+          duration: 0.45,
+          x: state.rootPosition.x,
+          y: state.rootPosition.y,
+          z: state.rootPosition.z,
+          ease: 'power2.out'
+        })
+      } else {
+        root.scale.copy(state.rootScale)
+        root.position.copy(state.rootPosition)
+      }
+    }
+
+    state.groups.forEach(item => {
+      item.group.visible = item.visible
+      item.group.position.copy(item.position)
+      item.group.scale.copy(item.scale)
+    })
+    state.labels.forEach(item => {
+      item.label.visible = item.visible
+      item.label.scale.copy(item.scale)
+      const wrap = item.label.element?.querySelector?.('.provinces-name-label-wrap')
+      if (wrap) wrap.setAttribute('style', item.wrapStyle)
+    })
+    state.layerPoints.forEach(item => {
+      item.point.visible = item.visible
+    })
+
+    this.provinceFocusState = null
+    this.currentScene = 'mainScene'
+    if (this.returnBtn?.style) this.returnBtn.style.display = 'none'
+  }
+
+  isGeoPointInGeometry(lng, lat, geometry) {
+    if (!geometry || !isFinite(lng) || !isFinite(lat)) return false
+    const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
+    if (!Array.isArray(polygons)) return false
+    return polygons.some(poly => Array.isArray(poly) && this.isPointInRing([lng, lat], poly[0]))
+  }
+
+  isPointInRing(point, ring) {
+    if (!Array.isArray(ring) || ring.length < 3) return false
+    const [x, y] = point
+    let inside = false
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1]
+      const xj = ring[j][0], yj = ring[j][1]
+      const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi
+      if (intersect) inside = !inside
+    }
+    return inside
+  }
+
+  handleCanvasBlankClick() {
+    if (!this.provinceFocusState) return
+    if (Date.now() - (this._lastMapAreaClickAt || 0) < 160) return
+    this.restoreProvinceFocus()
+  }
+
+  findProvinceByPoint(lng, lat) {
+    if (!this.provinceMesh?.mapGroup || !isFinite(lng) || !isFinite(lat)) return null
+    return this.provinceMesh.mapGroup.children.find(group =>
+      this.isGeoPointInGeometry(lng, lat, group?.userData?.geometry)
+    )
+  }
+
+  handleLayerPointClick(item, layer, event, lng, lat) {
+    event?.stopPropagation?.()
+    event?.nativeEvent?.stopPropagation?.()
+    event?.originalEvent?.stopPropagation?.()
+    this._lastMapAreaClickAt = Date.now()
+
+    if (Date.now() < (this._provinceFocusClickGuardUntil || 0)) {
+      return
+    }
+
+    if (this.drill?.focusProvinceOnly && !this.provinceFocusState) {
+      const province = this.findProvinceByPoint(lng, lat)
+      if (province?.userData) {
+        this.focusProvince(province.userData)
+        this._provinceFocusClickGuardUntil = Date.now() + 450
+      }
+      return
+    }
+
+    if (typeof this.onPointClick === 'function') this.onPointClick(item, layer, event)
   }
 
   clearProvinceValueLabels() {
@@ -1865,13 +2072,17 @@ export class World extends Mini3d {
       sprite.scale.set(spriteSize, spriteSize, spriteSize)
       sprite.position.set(x, -y, z)
       sprite.renderOrder = 25
+      sprite.userData.lng = lng
+      sprite.userData.lat = lat
+      sprite.userData.item = item
+      sprite.userData.layerId = layer.id
       this._layerGroup.add(sprite)
 
       if (this.interactionManager) {
         this.interactionManager.add(sprite)
         sprite.cursor = 'pointer'
         sprite.addEventListener('click', (event) => {
-          if (typeof this.onPointClick === 'function') this.onPointClick(item, layer, event)
+          this.handleLayerPointClick(item, layer, event, lng, lat)
         })
         sprite.addEventListener('mouseover', (event) => {
           if (typeof this.onPointHover === 'function') this.onPointHover(item, layer, event)
