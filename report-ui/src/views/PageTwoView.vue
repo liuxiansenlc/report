@@ -33,49 +33,32 @@
         <div class="left-section s2-plan">
           <div class="sec-title left-title">改良方案情况</div>
           
-          <div class="s2-plan-details plan-status-card" v-if="currentPlan">
-            <div class="plan-status-row">
-              <div
-                class="plan-status-item"
-                v-for="item in planStatusItems"
-                :key="item.key"
-                :class="item.key"
-              >
-                <div class="plan-status-label">{{ item.label }}</div>
-                <div class="plan-status-icon">
-                  <span class="icon-core"></span>
+          <div class="s2-plan-details static-card-new" v-if="currentPlan">
+            <div class="q-avatar-box">
+              <img src="../assets/images/左上图片.png" class="q-avatar" />
+            </div>
+            <div class="q-inner">
+              <div class="q-header">
+                <span class="q-title">{{ currentPlan.name }}</span>
+              </div>
+              <div class="q-date">{{ currentPlan.date }}</div>
+              <div class="q-body">
+                <div class="q-dl-item">
+                  <span class="q-dl-label">检测前</span>
+                  <img v-if="currentPlan.beforeUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.beforeUrl, currentPlan.name + '_检测前报告.pdf')" />
+                  <span v-else class="q-no-file">-</span>
                 </div>
-                <div class="plan-status-value">{{ item.value }}</div>
+                <div class="q-dl-item">
+                  <span class="q-dl-label">检测后</span>
+                  <img v-if="currentPlan.afterUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.afterUrl, currentPlan.name + '_检测后报告.pdf')" />
+                  <span v-else class="q-no-file">-</span>
+                </div>
+                <div class="q-dl-item">
+                  <span class="q-dl-label">改良方案</span>
+                  <img v-if="currentPlan.planUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.planUrl, currentPlan.name + '_改良方案.pdf')" />
+                  <span v-else class="q-no-file">-</span>
+                </div>
               </div>
-            </div>
-            <div class="plan-total-row">
-              <span class="plan-total-label">累计制定改良方案：</span>
-              <div class="plan-total-digits">
-                <span v-for="(digit, idx) in planTotalDigits" :key="idx" class="plan-total-digit">{{ digit }}</span>
-              </div>
-            </div>
-            <div class="plan-download-row">
-              <button
-                class="plan-download-btn"
-                :disabled="!currentPlan.beforeUrl"
-                @click="downloadPlanFile('before')"
-              >
-                检测前
-              </button>
-              <button
-                class="plan-download-btn"
-                :disabled="!currentPlan.afterUrl"
-                @click="downloadPlanFile('after')"
-              >
-                检测后
-              </button>
-              <button
-                class="plan-download-btn primary"
-                :disabled="!currentPlan.planUrl"
-                @click="downloadPlanFile('plan')"
-              >
-                下载方案
-              </button>
             </div>
           </div>
         </div>
@@ -481,64 +464,6 @@ const downloadFile = (url, name) => {
 }
 
 const currentPlan = ref(null)
-const planSummary = ref({
-  detect: 0,
-  analyze: 0,
-  formulate: 0,
-  running: 0,
-  done: 0,
-  total: 0
-})
-
-const planTotalDigits = computed(() => String(planSummary.value.total || 0).padStart(6, '0').split(''))
-
-const planStatusItems = computed(() => [
-  { key: 'detect', label: '检测', value: planSummary.value.detect },
-  { key: 'analyze', label: '分析', value: planSummary.value.analyze },
-  { key: 'formulate', label: '方案制定', value: planSummary.value.formulate },
-  { key: 'running', label: '执行中', value: planSummary.value.running },
-  { key: 'done', label: '已完成', value: planSummary.value.done }
-])
-
-const downloadPlanFile = (type) => {
-  if (!currentPlan.value) return
-  if (type === 'before' && currentPlan.value.beforeUrl) {
-    downloadFile(currentPlan.value.beforeUrl, currentPlan.value.name + '_检测前报告.pdf')
-  } else if (type === 'after' && currentPlan.value.afterUrl) {
-    downloadFile(currentPlan.value.afterUrl, currentPlan.value.name + '_检测后报告.pdf')
-  } else if (type === 'plan' && currentPlan.value.planUrl) {
-    downloadFile(currentPlan.value.planUrl, currentPlan.value.name + '_改良方案.pdf')
-  }
-}
-
-const loadPlanSummary = async () => {
-  try {
-    const res = await fetch('/api/datasource/improvement-plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    })
-    const json = await res.json()
-    if (json.code === 200 && Array.isArray(json.data)) {
-      const list = json.data
-      const detect = list.filter(item => item.beforeUrl || item.afterUrl).length
-      const analyze = list.filter(item => item.afterUrl).length || detect
-      const formulate = list.filter(item => item.planUrl).length
-      const done = list.filter(item => item.beforeUrl && item.afterUrl && item.planUrl).length
-      const running = Math.max(0, formulate - done)
-      planSummary.value = {
-        detect,
-        analyze,
-        formulate,
-        running,
-        done,
-        total: formulate
-      }
-    }
-  } catch (e) {
-    console.error('获取改良方案统计失败:', e)
-  }
-}
 
 const loadImprovementPlan = async (farm) => {
   if (!farm) return
@@ -1083,7 +1008,6 @@ const closeDropdowns = (e) => {
 onMounted(() => {
   window.addEventListener('click', closeDropdowns)
   loadFarmList()
-  loadPlanSummary()
   
   if (chartPhRef.value) {
     chartPhInstance = echarts.init(chartPhRef.value)
@@ -1888,6 +1812,93 @@ onUnmounted(() => {
 }
 
 /* 从左看板引入的卡片样式，单体无滚动版 */
+.static-card-new {
+  width: 100%;
+  height: 160px;
+  background: url('../assets/images/car_bg_new_3.png') no-repeat center;
+  background-size: 100% 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.static-card-new .q-avatar-box {
+  position: absolute;
+  left: 18px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.static-card-new .q-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.static-card-new .q-inner {
+  margin-left: 140px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-right: 20px;
+}
+
+.static-card-new .q-header {
+  margin-bottom: 5px;
+  margin-top: -10px;
+  text-align: center;
+}
+
+.static-card-new .q-title {
+  font-size: 16px;
+  color: #fff;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+.static-card-new .q-date {
+  font-size: 12px;
+  color: #cce8ff;
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.static-card-new .q-body {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  width: 100%;
+}
+
+.static-card-new .q-dl-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.static-card-new .q-dl-label {
+  font-size: 13px;
+  color: #cce8ff;
+}
+
+.static-card-new .q-icon-btn {
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.static-card-new .q-icon-btn:hover {
+  transform: scale(1.1);
+}
+
 .static-card {
   width: 100%;
   display: flex;

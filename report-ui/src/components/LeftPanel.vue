@@ -1,5 +1,5 @@
 <template>
-  <div class="left-panel" @click="activeBenefitType = ''">
+  <div class="left-panel" @click="closePanelDetails">
     <!-- 第一块：服务农场 -->
     <div class="panel-section sec-1">
       <div class="panel-title">
@@ -54,51 +54,67 @@
     </div>
 
     <!-- 第二块：改良方案情况 -->
-    <div class="panel-section sec-2">
+    <div class="panel-section sec-2" @click.stop="activePlanStage = ''">
       <div class="panel-title">
         <span class="title-text">改良方案情况</span>
       </div>
-      
-      <!-- 累计制定改良方案 / 覆盖面积 -->
-      <div class="plan-metrics-row">
-        <div class="plan-label">累计制定改良方案：</div>
-        <div class="plan-flipper-box">
-          <div class="flip-digit" v-for="(digit, idx) in displayDigits" :key="idx">
-            <div class="digit-roller" :style="{ transform: `translateY(-${digit * 41}px)` }">
-              <div v-for="n in 10" :key="n" class="roller-num">{{ n - 1 }}</div>
-            </div>
-          </div>
-          <span class="plan-trend">个</span>
-        </div>
-      </div>
 
-      <!-- 并排展示的数据卡片 -->
-      <div class="quality-carousel">
-        <div class="q-cards-row" :class="{ 'animate-scroll': qualityCards.length > 3 }">
-          <div class="q-card-new2" v-for="(item, index) in qualityCards" :key="index">
-            <div class="qc2-top">
-              <img :src="item.img" class="qc2-img" />
-              <span class="qc2-name">{{ item.name }}</span>
+      <div class="plan-console">
+        <div class="plan-overview">
+          <div class="plan-total-core">
+            <div class="plan-scan-ring"></div>
+            <div class="plan-total-value">{{ planTotalDisplay }}</div>
+            <div class="plan-total-unit">份方案</div>
+          </div>
+          <div class="plan-overview-copy">
+            <div class="plan-overview-label">累计制定改良方案</div>
+            <div class="plan-rate-row">
+              <span class="plan-rate-value">{{ planCompletionRate }}%</span>
+              <span class="plan-rate-label">方案完成率</span>
             </div>
-            <div class="qc2-date">{{ item.date }}</div>
-            <div class="qc2-rows">
-              <div class="qc2-row">
-                <span class="qc2-label">检测前</span>
-                <img v-if="item.beforeUrl" src="../assets/images/下载按钮.png" class="qc2-dl" @click="downloadFile(item.beforeUrl, item.name + '_检测前报告.pdf')" />
-                <span v-else class="qc2-no-file">-</span>
-              </div>
-              <div class="qc2-row">
-                <span class="qc2-label">检测后</span>
-                <img v-if="item.afterUrl" src="../assets/images/下载按钮.png" class="qc2-dl" @click="downloadFile(item.afterUrl, item.name + '_检测后报告.pdf')" />
-                <span v-else class="qc2-no-file">-</span>
-              </div>
-              <div class="qc2-row">
-                <span class="qc2-label">改良方案</span>
-                <img v-if="item.planUrl" src="../assets/images/下载按钮.png" class="qc2-dl" @click="downloadFile(item.planUrl, item.name + '_改良方案.pdf')" />
-                <span v-else class="qc2-no-file">-</span>
-              </div>
+            <div class="plan-rate-track">
+              <span :style="{ width: planCompletionRate + '%' }"></span>
             </div>
           </div>
+        </div>
+
+        <div class="plan-flow">
+          <template v-for="(stage, index) in planStages" :key="stage.key">
+            <button
+              class="plan-stage"
+              :class="{ active: activePlanStage === stage.key }"
+              type="button"
+              @click.stop="togglePlanStage(stage.key)"
+            >
+              <span class="plan-stage-orbit"><i :class="stage.icon"></i></span>
+              <strong>{{ stage.count }}</strong>
+              <span>{{ stage.label }}</span>
+            </button>
+            <div v-if="index < planStages.length - 1" class="plan-flow-line"><i></i></div>
+          </template>
+        </div>
+
+        <div v-if="activePlanStage" class="plan-detail" @click.stop>
+          <div class="plan-detail-head">
+            <span>{{ activePlanStageLabel }} · 农场明细</span>
+            <button type="button" class="plan-detail-close" title="关闭" @click="activePlanStage = ''">×</button>
+          </div>
+          <div v-if="activePlanRows.length" class="plan-detail-list">
+            <div v-for="item in activePlanRows" :key="activePlanStage + item.name" class="plan-detail-row">
+              <div class="plan-detail-info">
+                <span class="plan-detail-name">{{ item.name }}</span>
+                <span class="plan-detail-date">{{ item.date || '--' }}</span>
+              </div>
+              <button
+                type="button"
+                class="plan-download"
+                :disabled="!item[activePlanStageUrlField]"
+                :title="item[activePlanStageUrlField] ? '下载文件' : '暂无文件'"
+                @click="downloadPlanStageFile(item)"
+              >↓</button>
+            </div>
+          </div>
+          <div v-else class="plan-detail-empty">暂无对应农场数据</div>
         </div>
       </div>
     </div>
@@ -164,7 +180,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import gsap from 'gsap'
 
 const farmTotalCount = ref(0)
@@ -173,15 +189,43 @@ const farmVarietyCount = ref(0)
 const farmCards = ref([])
 const farmDistributionSource = ref([])
 
-// 累计制定改良方案个数
-const targetValue = ref('0000')
-// Start with 0000 so that it rolls upwards
-const displayDigits = ref(['0', '0', '0', '0'])
+const improvementPlans = ref([])
+const activePlanStage = ref('')
 
-// 监测 targetValue 变化并同步到翻牌器
-watch(targetValue, (newVal) => {
-  displayDigits.value = newVal.padStart(4, '0').split('')
+const planStageMeta = {
+  before: { label: '初检完成', urlField: 'beforeUrl', icon: 'icon-scan', fileLabel: '检测前报告' },
+  after: { label: '复检完成', urlField: 'afterUrl', icon: 'icon-review', fileLabel: '检测后报告' },
+  plan: { label: '方案已制定', urlField: 'planUrl', icon: 'icon-plan', fileLabel: '改良方案' }
+}
+
+const planTotal = computed(() => improvementPlans.value.filter(item => item.planUrl).length)
+const planTotalDisplay = computed(() => String(planTotal.value).padStart(3, '0'))
+const planCompletionRate = computed(() => {
+  if (!improvementPlans.value.length) return 0
+  return Math.round(planTotal.value / improvementPlans.value.length * 100)
 })
+const planStages = computed(() => Object.entries(planStageMeta).map(([key, meta]) => ({
+  key,
+  ...meta,
+  count: improvementPlans.value.filter(item => item[meta.urlField]).length
+})))
+const activePlanStageMeta = computed(() => planStageMeta[activePlanStage.value] || null)
+const activePlanStageLabel = computed(() => activePlanStageMeta.value?.label || '')
+const activePlanStageUrlField = computed(() => activePlanStageMeta.value?.urlField || '')
+const activePlanRows = computed(() => {
+  const field = activePlanStageUrlField.value
+  if (!field) return []
+  return improvementPlans.value.slice().sort((a, b) => Number(Boolean(b[field])) - Number(Boolean(a[field])))
+})
+
+const closePanelDetails = () => {
+  activeBenefitType.value = ''
+  activePlanStage.value = ''
+}
+
+const togglePlanStage = (stage) => {
+  activePlanStage.value = activePlanStage.value === stage ? '' : stage
+}
 
 // 底部生态与经济效益动画数值
 const bVal1 = ref(0)
@@ -297,6 +341,12 @@ const downloadFile = (url, name) => {
   document.body.removeChild(link)
 }
 
+const downloadPlanStageFile = (item) => {
+  const meta = activePlanStageMeta.value
+  if (!meta || !item?.[meta.urlField]) return
+  downloadFile(item[meta.urlField], `${item.name}_${meta.fileLabel}.pdf`)
+}
+
 const loadImprovementPlans = async () => {
   try {
     const res = await fetch('/api/datasource/improvement-plan', {
@@ -306,22 +356,13 @@ const loadImprovementPlans = async () => {
     })
     const json = await res.json()
     if (json.code === 200 && json.data) {
-      const list = json.data
-      
-      // 累计制定改良方案：统计有多少个 planUrl
-      const totalPlans = list.filter(item => item.planUrl).length
-      targetValue.value = totalPlans.toString()
-      
-      const newCards = list.map(item => ({
+      improvementPlans.value = json.data.map(item => ({
         name: item.name,
         date: item.date,
-        img: getImageUrl('左上图片.png'),
         beforeUrl: item.beforeUrl,
         afterUrl: item.afterUrl,
         planUrl: item.planUrl
       }))
-      
-      qualityCards.value = newCards.length > 3 ? [...newCards, ...newCards] : newCards
     }
   } catch (e) {
     console.error('获取改良方案数据失败:', e)
@@ -378,8 +419,6 @@ const getImageUrl = (name) => {
   return new URL(`../assets/images/${name}`, import.meta.url).href
 }
 
-// 初始为空，由接口加载
-const qualityCards = ref([])
 </script>
 
 <style scoped>
@@ -1012,5 +1051,421 @@ const qualityCards = ref([])
   top: auto;
   right: auto;
   transform: none;
+}
+
+/* Improvement plan process console */
+.plan-console {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 24px 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.plan-console::before {
+  content: '';
+  position: absolute;
+  inset: 8px 18px 13px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(0, 225, 255, 0.55), transparent 82%) left top / 75px 1px no-repeat,
+    linear-gradient(270deg, rgba(0, 225, 255, 0.55), transparent 82%) right bottom / 75px 1px no-repeat;
+  opacity: 0.8;
+}
+
+.plan-overview {
+  height: 112px;
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  box-sizing: border-box;
+  background: linear-gradient(90deg, rgba(0, 42, 92, 0.18), rgba(0, 105, 160, 0.13), rgba(0, 42, 92, 0.05));
+  border-top: 1px solid rgba(0, 220, 255, 0.22);
+  border-bottom: 1px solid rgba(0, 143, 255, 0.2);
+}
+
+.plan-total-core {
+  position: relative;
+  width: 94px;
+  height: 94px;
+  flex: 0 0 94px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(3, 20, 50, 0.98) 0 48%, rgba(0, 94, 145, 0.24) 50% 62%, transparent 64%);
+  box-shadow: inset 0 0 20px rgba(0, 145, 255, 0.18), 0 0 15px rgba(0, 208, 255, 0.16);
+}
+
+.plan-total-core::before,
+.plan-total-core::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.plan-total-core::before {
+  inset: 8px;
+  border: 1px solid rgba(90, 245, 255, 0.38);
+  border-left-color: transparent;
+  border-bottom-color: rgba(255, 210, 62, 0.72);
+  animation: planOrbit 5s linear infinite;
+}
+
+.plan-total-core::after {
+  inset: 1px;
+  background: repeating-conic-gradient(from 0deg, rgba(66, 235, 255, 0.75) 0 2deg, transparent 2deg 12deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 84%, #000 85% 88%, transparent 89%);
+  mask: radial-gradient(circle, transparent 0 84%, #000 85% 88%, transparent 89%);
+  opacity: 0.72;
+}
+
+.plan-scan-ring {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 285deg, rgba(0, 238, 255, 0.65) 330deg, transparent 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 67%, #000 69% 75%, transparent 77%);
+  mask: radial-gradient(circle, transparent 0 67%, #000 69% 75%, transparent 77%);
+  animation: planOrbit 2.8s linear infinite;
+}
+
+.plan-total-value {
+  position: relative;
+  z-index: 2;
+  color: #effeff;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 31px;
+  line-height: 1;
+  font-weight: 800;
+  text-shadow: 0 0 8px rgba(0, 225, 255, 0.8);
+}
+
+.plan-total-unit {
+  position: relative;
+  z-index: 2;
+  margin-top: 5px;
+  color: #76dff3;
+  font-size: 11px;
+}
+
+.plan-overview-copy {
+  flex: 1;
+  min-width: 0;
+  padding-left: 24px;
+}
+
+.plan-overview-label {
+  color: #d8f7ff;
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow: 0 0 7px rgba(0, 185, 255, 0.55);
+}
+
+.plan-rate-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.plan-rate-value {
+  color: #ffd74a;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 25px;
+  font-weight: 800;
+  text-shadow: 0 0 8px rgba(255, 196, 26, 0.45);
+}
+
+.plan-rate-label {
+  color: #8dbcd4;
+  font-size: 11px;
+}
+
+.plan-rate-track {
+  width: 100%;
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  background: rgba(5, 54, 94, 0.85);
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.7);
+}
+
+.plan-rate-track span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #00a9ff, #48fff0, #ffe04f);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.75);
+  transition: width 0.8s ease;
+}
+
+.plan-flow {
+  height: 130px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px 0;
+  box-sizing: border-box;
+}
+
+.plan-stage {
+  width: 92px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #d8f7ff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.plan-stage-orbit {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 218, 255, 0.45);
+  background: radial-gradient(circle, rgba(0, 179, 224, 0.28), rgba(1, 24, 58, 0.92) 65%);
+  box-shadow: inset 0 0 11px rgba(0, 207, 255, 0.35), 0 0 8px rgba(0, 197, 255, 0.2);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.plan-stage-orbit::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border-top: 1px solid rgba(70, 246, 255, 0.82);
+  border-right: 1px solid transparent;
+  border-bottom: 1px solid rgba(24, 121, 224, 0.35);
+  border-left: 1px solid transparent;
+  animation: planOrbit 4s linear infinite;
+}
+
+.plan-stage:hover .plan-stage-orbit,
+.plan-stage.active .plan-stage-orbit {
+  transform: translateY(-2px);
+  border-color: #ffe05b;
+  box-shadow: inset 0 0 13px rgba(0, 226, 255, 0.5), 0 0 13px rgba(255, 209, 50, 0.35);
+}
+
+.plan-stage-orbit i {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.plan-stage-orbit .icon-scan {
+  border: 2px solid #4af5ff;
+  border-radius: 50%;
+  box-shadow: inset 0 0 5px rgba(0, 255, 255, 0.55);
+}
+
+.plan-stage-orbit .icon-scan::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 7px;
+  height: 2px;
+  background: #ffe054;
+  box-shadow: 0 0 5px #ffe054;
+}
+
+.plan-stage-orbit .icon-review {
+  border-left: 2px solid #4af5ff;
+  border-bottom: 2px solid #4af5ff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+.plan-stage-orbit .icon-review::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 14px;
+  left: 8px;
+  top: -3px;
+  border-right: 2px solid #ffe054;
+  border-bottom: 2px solid #ffe054;
+}
+
+.plan-stage-orbit .icon-plan {
+  border: 2px solid #4af5ff;
+  box-sizing: border-box;
+}
+
+.plan-stage-orbit .icon-plan::before,
+.plan-stage-orbit .icon-plan::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 8px;
+  height: 1px;
+  background: #ffe054;
+  box-shadow: 0 0 4px rgba(255, 224, 84, 0.7);
+}
+
+.plan-stage-orbit .icon-plan::before { top: 5px; }
+.plan-stage-orbit .icon-plan::after { top: 10px; }
+
+.plan-stage strong {
+  margin-top: 8px;
+  color: #fff5b3;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.plan-stage > span:last-child {
+  margin-top: 5px;
+  color: #a8ddf1;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.plan-flow-line {
+  position: relative;
+  width: 37px;
+  height: 1px;
+  margin: 0 -4px 35px;
+  overflow: hidden;
+  background: rgba(0, 134, 205, 0.55);
+}
+
+.plan-flow-line i {
+  position: absolute;
+  top: 0;
+  left: -15px;
+  width: 15px;
+  height: 1px;
+  background: #6dffff;
+  box-shadow: 0 0 6px #00eaff;
+  animation: planFlow 1.8s linear infinite;
+}
+
+.plan-detail {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 14px;
+  height: 137px;
+  z-index: 6;
+  padding: 9px 11px;
+  box-sizing: border-box;
+  border: 1px solid rgba(0, 209, 255, 0.58);
+  background: linear-gradient(180deg, rgba(3, 28, 65, 0.98), rgba(2, 14, 36, 0.97));
+  box-shadow: 0 0 14px rgba(0, 169, 255, 0.32), inset 0 0 16px rgba(0, 108, 206, 0.12);
+}
+
+.plan-detail-head {
+  height: 23px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #dffcff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plan-detail-close,
+.plan-download {
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 224, 255, 0.5);
+  background: rgba(0, 80, 135, 0.28);
+  color: #b9fbff;
+  cursor: pointer;
+}
+
+.plan-detail-close {
+  width: 18px;
+  height: 18px;
+  font-size: 15px;
+}
+
+.plan-detail-list {
+  height: 94px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.plan-detail-list::-webkit-scrollbar { width: 3px; }
+.plan-detail-list::-webkit-scrollbar-thumb { background: rgba(0, 211, 255, 0.6); }
+
+.plan-detail-row {
+  height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid rgba(64, 172, 219, 0.15);
+}
+
+.plan-detail-info {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.plan-detail-name {
+  width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c9edff;
+  font-size: 11px;
+}
+
+.plan-detail-date {
+  color: #6f9db7;
+  font-family: 'Arial Narrow', Arial, sans-serif;
+  font-size: 10px;
+}
+
+.plan-download {
+  width: 23px;
+  height: 21px;
+  flex: 0 0 23px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.plan-download:hover:not(:disabled) {
+  color: #ffe15a;
+  border-color: rgba(255, 220, 75, 0.75);
+  box-shadow: 0 0 7px rgba(255, 216, 44, 0.32);
+}
+
+.plan-download:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.plan-detail-empty {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #668ca5;
+  font-size: 12px;
+}
+
+@keyframes planOrbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes planFlow {
+  to { transform: translateX(52px); }
 }
 </style>

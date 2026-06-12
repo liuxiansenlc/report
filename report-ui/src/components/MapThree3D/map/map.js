@@ -25,7 +25,11 @@ import {
   TextureLoader,
   MOUSE,
   BufferGeometry,
-  Line
+  Line,
+  Box3,
+  Matrix4,
+  Raycaster,
+  Vector2
 } from 'three'
 
 import {
@@ -335,6 +339,11 @@ export class World extends Mini3d {
       config?.dom?.returnBtn ||
       (container && typeof container.querySelector === 'function' ? container.querySelector('.return-btn') : null) ||
       document.querySelector('.return-btn')
+    this.focusProvinceName =
+      config?.dom?.focusProvinceName ||
+      (container && typeof container.querySelector === 'function'
+        ? container.querySelector('.focus-province-name')
+        : null)
     this.clicked = false // 是否已经点击
     this.currentScene = 'mainScene' // 当前场景 mainScene | childScene
     this.assets = new Assets(() => {
@@ -1506,24 +1515,24 @@ export class World extends Mini3d {
       this.interactionManager.add(mesh)
       mesh.addEventListener('mousedown', event => {
         if (!this.drill.isDrill || this.clicked || !this.mainSceneGroup.visible) return false
+        this.beginMapInteraction(event)
         if (this.provinceFocusState) {
-          const currentCode = String(this.provinceFocusState.targetCode || '')
-          const hitCode = String(event.target?.parent?.userData?.adcode || '')
-          if (currentCode && hitCode === currentCode) {
-            this._lastMapAreaClickAt = Date.now()
-          }
           return false
         }
         this.clicked = true
-        this._lastMapAreaClickAt = Date.now()
         let userData = event.target.parent.userData
+        if (this.drill.focusProvinceOnly) {
+          this.focusProvince(userData)
+          this.endMapInteraction()
+          this.clicked = false
+          return false
+        }
         this.history.push(userData)
         this.loadChildMap(userData)
-        if (this.drill.focusProvinceOnly) {
-          this._provinceFocusClickGuardUntil = Date.now() + 450
-        }
+        this.clicked = false
       })
-      mesh.addEventListener('mouseup', ev => {
+      mesh.addEventListener('mouseup', () => {
+        this.endMapInteraction()
         this.clicked = false
       })
       mesh.addEventListener('mouseover', event => {
@@ -1714,19 +1723,34 @@ export class World extends Mini3d {
 
   focusProvince(userData) {
     const targetCode = String(userData?.adcode || '')
-    if (!targetCode || !this.provinceMesh?.mapGroup) return
-
-    this.restoreProvinceFocus(false)
+    if (!targetCode || !this.provinceMesh?.mapGroup || this._provinceFocusTransitioning) return
 
     const mapGroup = this.provinceMesh.mapGroup
     const targetGroup = mapGroup.children.find(group => String(group?.userData?.adcode || '') === targetCode)
     if (!targetGroup) return
     const root = this.mainMapRoot || mapGroup
 
+    if (!this._provinceFocusBaseTransform) {
+      this._provinceFocusBaseTransform = {
+        position: root.position.clone(),
+        scale: root.scale.clone()
+      }
+    }
+
+    if (this.provinceFocusState) this.restoreProvinceFocus(false)
+
+    gsap.killTweensOf(root.position)
+    gsap.killTweensOf(root.scale)
+    root.position.copy(this._provinceFocusBaseTransform.position)
+    root.scale.copy(this._provinceFocusBaseTransform.scale)
+    this.resetProvinceFocusCamera()
+    root.updateWorldMatrix(true, true)
+
     const original = {
       targetCode,
-      rootPosition: root.position.clone(),
-      rootScale: root.scale.clone(),
+      targetGroup,
+      rootPosition: this._provinceFocusBaseTransform.position.clone(),
+      rootScale: this._provinceFocusBaseTransform.scale.clone(),
       groups: mapGroup.children.map(group => ({
         group,
         visible: group.visible,
@@ -1741,7 +1765,9 @@ export class World extends Mini3d {
       })) || [],
       layerPoints: this._layerGroup?.children?.map(point => ({
         point,
-        visible: point.visible
+        visible: point.visible,
+        position: point.position.clone(),
+        scale: point.scale.clone()
       })) || []
     }
 
@@ -1752,43 +1778,64 @@ export class World extends Mini3d {
     mapGroup.children.forEach(group => {
       group.visible = String(group?.userData?.adcode || '') === targetCode
     })
+    this.setProvinceInteractions(targetCode)
 
     this.provinceNameGroup?.children?.forEach(label => {
-      const isTarget = String(label?.userData?.adcode || '') === targetCode
-      label.visible = isTarget
-      if (isTarget) {
-        const wrap = label.element?.querySelector?.('.provinces-name-label-wrap')
-        if (wrap) {
-          wrap.style.color = '#e8fbff'
-          wrap.style.fontWeight = '700'
-          wrap.style.fontSize = '18px'
-          wrap.style.textShadow = '0 0 6px rgba(0,255,255,.9), 0 0 16px rgba(0,128,255,.75), 0 2px 2px rgba(0,0,0,.9)'
-          wrap.style.letterSpacing = '0'
-        }
-      }
+      label.visible = false
     })
 
+    if (this.focusProvinceName?.style) {
+      this.focusProvinceName.textContent = userData?.name || targetGroup.userData?.name || ''
+      this.focusProvinceName.style.display = 'block'
+    }
+
+    let focusedPointCount = 0
     this._layerGroup?.children?.forEach(point => {
+      if (!point?.isSprite || !point.userData?.isMapPoint) {
+        point.visible = false
+        return
+      }
       point.visible = this.isGeoPointInGeometry(point.userData.lng, point.userData.lat, targetGroup.userData.geometry)
+      if (point.visible) focusedPointCount += 1
+      this.setLayerPointInteraction(point, point.visible)
     })
+    original.focusedPointCount = focusedPointCount
+    if (typeof this.onPointOut === 'function') this.onPointOut()
 
-    const bound = getBoundBox(targetGroup)
-    const currentScale = root.scale.x || 1
-    const targetScale = currentScale * 5.2
-    const scaleRatio = targetScale / currentScale
+    const bound = this.getObjectBoundsInAncestor(targetGroup, root, { dominantXY: true })
+    if (!bound) {
+      this.restoreProvinceFocus(false)
+      return
+    }
+    const baseScale = original.rootScale
+    const width = Math.max(0.001, Math.abs(bound.boxSize.x || 0.001))
+    const height = Math.max(0.001, Math.abs(bound.boxSize.y || 0.001))
+    const fitRatio = Math.min(108 / width, 86 / height)
+    const scaleRatio = Math.min(12.5, Math.max(2.25, fitRatio))
+    const targetScaleX = baseScale.x * scaleRatio
+    const targetScaleY = baseScale.y * scaleRatio
+    const targetPositionX = original.rootPosition.x - bound.center.x * targetScaleX
+    const targetPositionY = original.rootPosition.y - bound.center.y * targetScaleY
+
+    this.spreadFocusedProvincePoints(targetGroup.userData.geometry, scaleRatio)
+    this._provinceFocusTransitioning = true
 
     gsap.to(root.scale, {
       duration: 0.55,
-      x: targetScale,
-      y: targetScale,
-      z: root.scale.z || 1,
+      x: targetScaleX,
+      y: targetScaleY,
+      z: baseScale.z,
       ease: 'power2.out'
     })
     gsap.to(root.position, {
       duration: 0.55,
-      x: root.position.x - bound.center.x * (this.scale || 1) * (scaleRatio - 1),
-      y: root.position.y - bound.center.y * (this.scale || 1) * (scaleRatio - 1),
-      ease: 'power2.out'
+      x: targetPositionX,
+      y: targetPositionY,
+      z: original.rootPosition.z,
+      ease: 'power2.out',
+      onComplete: () => {
+        this._provinceFocusTransitioning = false
+      }
     })
   }
 
@@ -1798,7 +1845,10 @@ export class World extends Mini3d {
 
     const root = this.mainMapRoot || this.provinceMesh?.mapGroup
     if (root) {
+      gsap.killTweensOf(root.scale)
+      gsap.killTweensOf(root.position)
       if (animate) {
+        this._provinceFocusTransitioning = true
         gsap.to(root.scale, {
           duration: 0.45,
           x: state.rootScale.x,
@@ -1811,11 +1861,16 @@ export class World extends Mini3d {
           x: state.rootPosition.x,
           y: state.rootPosition.y,
           z: state.rootPosition.z,
-          ease: 'power2.out'
+          ease: 'power2.out',
+          onComplete: () => {
+            this._provinceFocusTransitioning = false
+            this.provinceFocusState = null
+          }
         })
       } else {
         root.scale.copy(state.rootScale)
         root.position.copy(state.rootPosition)
+        this._provinceFocusTransitioning = false
       }
     }
 
@@ -1824,6 +1879,7 @@ export class World extends Mini3d {
       item.group.position.copy(item.position)
       item.group.scale.copy(item.scale)
     })
+    this.setProvinceInteractions()
     state.labels.forEach(item => {
       item.label.visible = item.visible
       item.label.scale.copy(item.scale)
@@ -1832,18 +1888,113 @@ export class World extends Mini3d {
     })
     state.layerPoints.forEach(item => {
       item.point.visible = item.visible
+      item.point.position.copy(item.position)
+      item.point.scale.copy(item.scale)
+      if (item.point?.isSprite && item.point.userData?.isMapPoint) {
+        this.setLayerPointInteraction(item.point, item.visible)
+      }
     })
 
-    this.provinceFocusState = null
+    if (this.focusProvinceName?.style) {
+      this.focusProvinceName.style.display = 'none'
+      this.focusProvinceName.textContent = ''
+    }
+    if (typeof this.onPointOut === 'function') this.onPointOut()
+    this.resetProvinceFocusCamera()
+
+    if (!animate) this.provinceFocusState = null
     this.currentScene = 'mainScene'
     if (this.returnBtn?.style) this.returnBtn.style.display = 'none'
   }
 
+  resetProvinceFocusCamera() {
+    if (!this.camera?.instance || !this.camera?.controls) return
+    gsap.killTweensOf(this.camera.instance.position)
+    gsap.killTweensOf(this.camera.controls.target)
+    this.camera.instance.position.set(this.cameraPosition.x, this.cameraPosition.y, this.cameraPosition.z)
+    this.camera.controls.target.set(this.cameraLookAt.x, this.cameraLookAt.y, this.cameraLookAt.z)
+    this.camera.instance.updateProjectionMatrix()
+    this.camera.controls.update()
+  }
+
+  getObjectBoundsInAncestor(object, ancestor, { dominantXY = false } = {}) {
+    if (!object || !ancestor) return null
+
+    ancestor.updateWorldMatrix(true, false)
+    object.updateWorldMatrix(true, true)
+
+    const ancestorInverse = new Matrix4().copy(ancestor.matrixWorld).invert()
+    const relativeMatrix = new Matrix4()
+    const localBox = new Box3()
+    localBox.makeEmpty()
+    let dominantBox = null
+    let dominantArea = -1
+    const corner = new Vector3()
+
+    object.traverse(child => {
+      const geometry = child?.geometry
+      if (!geometry || (dominantXY && !child.isMesh)) return
+      if (!geometry.boundingBox) geometry.computeBoundingBox()
+      const geometryBox = geometry.boundingBox
+      if (!geometryBox || geometryBox.isEmpty()) return
+
+      relativeMatrix.multiplyMatrices(ancestorInverse, child.matrixWorld)
+      const min = geometryBox.min
+      const max = geometryBox.max
+      const childBox = new Box3()
+      childBox.makeEmpty()
+
+      for (let xIndex = 0; xIndex < 2; xIndex += 1) {
+        for (let yIndex = 0; yIndex < 2; yIndex += 1) {
+          for (let zIndex = 0; zIndex < 2; zIndex += 1) {
+            corner
+              .set(xIndex ? max.x : min.x, yIndex ? max.y : min.y, zIndex ? max.z : min.z)
+              .applyMatrix4(relativeMatrix)
+            childBox.expandByPoint(corner)
+          }
+        }
+      }
+
+      if (dominantXY) {
+        const size = childBox.getSize(new Vector3())
+        const area = Math.abs(size.x * size.y)
+        if (area > dominantArea) {
+          dominantArea = area
+          dominantBox = childBox.clone()
+        }
+      } else {
+        localBox.union(childBox)
+      }
+    })
+
+    const resultBox = dominantXY ? dominantBox : localBox
+    if (!resultBox || resultBox.isEmpty()) return null
+    return {
+      box3: resultBox,
+      center: resultBox.getCenter(new Vector3()),
+      boxSize: resultBox.getSize(new Vector3())
+    }
+  }
+
   isGeoPointInGeometry(lng, lat, geometry) {
     if (!geometry || !isFinite(lng) || !isFinite(lat)) return false
-    const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
+    return this.isPointInPolygons([lng, lat], this.normalizeGeometryPolygons(geometry))
+  }
+
+  normalizeGeometryPolygons(geometry) {
+    if (!geometry || !Array.isArray(geometry.coordinates)) return []
+    if (geometry.type === 'Polygon') return [geometry.coordinates]
+    if (geometry.type === 'MultiPolygon') return geometry.coordinates
+    return []
+  }
+
+  isPointInPolygons(point, polygons) {
     if (!Array.isArray(polygons)) return false
-    return polygons.some(poly => Array.isArray(poly) && this.isPointInRing([lng, lat], poly[0]))
+    return polygons.some(polygon => {
+      if (!Array.isArray(polygon) || !Array.isArray(polygon[0])) return false
+      if (!this.isPointInRing(point, polygon[0])) return false
+      return !polygon.slice(1).some(hole => this.isPointInRing(point, hole))
+    })
   }
 
   isPointInRing(point, ring) {
@@ -1859,10 +2010,54 @@ export class World extends Mini3d {
     return inside
   }
 
-  handleCanvasBlankClick() {
-    if (!this.provinceFocusState) return
-    if (Date.now() - (this._lastMapAreaClickAt || 0) < 160) return
+  consumeMapInteraction(event) {
+    const nativeEvent = event?.nativeEvent || event?.originalEvent
+    event?.stopPropagation?.()
+    nativeEvent?.stopPropagation?.()
+    if (nativeEvent) nativeEvent.__mapInteractionConsumed = true
+    this._mapInteractionConsumed = true
+    queueMicrotask(() => {
+      this._mapInteractionConsumed = false
+    })
+  }
+
+  beginMapInteraction(event) {
+    const nativeEvent = event?.nativeEvent || event?.originalEvent
+    event?.stopPropagation?.()
+    nativeEvent?.stopPropagation?.()
+    if (nativeEvent) nativeEvent.__mapInteractionConsumed = true
+    clearTimeout(this._mapInteractionReleaseTimer)
+    this._mapInteractionConsumed = true
+  }
+
+  endMapInteraction() {
+    clearTimeout(this._mapInteractionReleaseTimer)
+    this._mapInteractionReleaseTimer = setTimeout(() => {
+      this._mapInteractionConsumed = false
+    }, 0)
+  }
+
+  handleCanvasBlankClick(event) {
+    if (!this.provinceFocusState || this._provinceFocusTransitioning) return
+    if (this._mapInteractionConsumed || event?.defaultPrevented || event?.__mapInteractionConsumed) return
+    if (event?.target !== this.canvas) return
+    if (this.provinceFocusState.focusedPointCount > 0 && this.isCanvasPointInsideFocusedProvince(event)) return
     this.restoreProvinceFocus()
+  }
+
+  isCanvasPointInsideFocusedProvince(event) {
+    const targetGroup = this.provinceFocusState?.targetGroup
+    if (!targetGroup || !this.canvas || !this.camera?.instance) return false
+    const rect = this.canvas.getBoundingClientRect()
+    if (!rect.width || !rect.height) return false
+
+    const pointer = new Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1
+    )
+    const raycaster = new Raycaster()
+    raycaster.setFromCamera(pointer, this.camera.instance)
+    return raycaster.intersectObject(targetGroup, true).some(hit => hit?.object?.isMesh)
   }
 
   findProvinceByPoint(lng, lat) {
@@ -1872,21 +2067,196 @@ export class World extends Mini3d {
     )
   }
 
-  handleLayerPointClick(item, layer, event, lng, lat) {
-    event?.stopPropagation?.()
-    event?.nativeEvent?.stopPropagation?.()
-    event?.originalEvent?.stopPropagation?.()
-    this._lastMapAreaClickAt = Date.now()
+  setLayerPointInteraction(point, active) {
+    if (!point || !this.interactionManager) return
+    const interactionTarget = point.userData?.hitTarget || point
+    this.interactionManager.remove(interactionTarget)
+    if (active) this.interactionManager.add(interactionTarget)
+  }
 
-    if (Date.now() < (this._provinceFocusClickGuardUntil || 0)) {
+  setProvinceInteractions(targetCode = '') {
+    if (!Array.isArray(this.eventElement) || !this.interactionManager) return
+    this.eventElement.forEach(mesh => {
+      this.interactionManager.remove(mesh)
+      if (!targetCode) this.interactionManager.add(mesh)
+    })
+  }
+
+  clearLayerPointInteractions() {
+    if (!Array.isArray(this._layerEventElements) || !this.interactionManager) {
+      this._layerEventElements = []
       return
     }
+    this._layerEventElements.forEach(point => this.interactionManager.remove(point))
+    this._layerEventElements = []
+  }
+
+  spreadFocusedProvincePoints(geometry, focusScaleRatio) {
+    if (!this._layerGroup || !geometry) return
+
+    const points = this._layerGroup.children.filter(
+      point => point.visible && point?.isSprite && point.userData?.isMapPoint && point?.position
+    )
+    if (!points.length) return
+
+    const projectedPolygons = this.normalizeGeometryPolygons(geometry).map(polygon =>
+      polygon.map(ring =>
+        ring.map(coordinate => {
+          const projected = this.geoProjection(coordinate)
+          return [projected[0], -projected[1]]
+        })
+      )
+    )
+    const mapScale = Math.max(0.001, Math.abs(this.scale || 1))
+    const layerOrder = { farm1: 0, farm2: 1, farm3: 2 }
+    const orderedPoints = points
+      .slice()
+      .sort((a, b) => {
+        const layerA = layerOrder[a.userData?.layerId] ?? 9
+        const layerB = layerOrder[b.userData?.layerId] ?? 9
+        if (layerA !== layerB) return layerA - layerB
+        return String(a.userData?.item?.name || '').localeCompare(String(b.userData?.item?.name || ''))
+      })
+
+    const visualScale = 1.2 / Math.max(1, focusScaleRatio)
+    const nodes = orderedPoints.map((point, index) => {
+      point.scale.multiplyScalar(visualScale)
+      const anchor = [point.position.x, point.position.y]
+      const polygon = projectedPolygons.find(candidate => this.isPointInPolygons(anchor, [candidate])) || null
+      const radius = Math.max(point.scale.x, point.scale.y) * 0.58
+      const safeAnchor = polygon ? this.movePointInsidePolygon(anchor, polygon, radius) : anchor
+      return {
+        point,
+        index,
+        polygon,
+        radius,
+        anchorX: safeAnchor[0],
+        anchorY: safeAnchor[1],
+        x: safeAnchor[0],
+        y: safeAnchor[1]
+      }
+    })
+    const largestDiameter = nodes.reduce((max, node) => Math.max(max, node.radius * 2), 0)
+    let minimumDistance = Math.max(largestDiameter * 1.08, 5.8 / (mapScale * Math.max(1, focusScaleRatio)))
+    const maxDisplacement = Math.max(minimumDistance * 2.4, 20 / (mapScale * Math.max(1, focusScaleRatio)))
+
+    for (let iteration = 0; iteration < 90; iteration += 1) {
+      if (iteration === 45) minimumDistance *= 0.9
+      if (iteration === 70) minimumDistance *= 0.9
+      const forces = nodes.map(() => ({ x: 0, y: 0 }))
+      let overlaps = 0
+
+      for (let i = 0; i < nodes.length; i += 1) {
+        for (let j = i + 1; j < nodes.length; j += 1) {
+          let dx = nodes[j].x - nodes[i].x
+          let dy = nodes[j].y - nodes[i].y
+          let distance = Math.hypot(dx, dy)
+          if (distance >= minimumDistance) continue
+
+          overlaps += 1
+          if (distance < 0.0001) {
+            const angle = ((i + 1) * 2.399963 + (j + 1) * 0.73) % (Math.PI * 2)
+            dx = Math.cos(angle)
+            dy = Math.sin(angle)
+            distance = 1
+          }
+
+          const push = (minimumDistance - distance) * 0.52
+          const nx = dx / distance
+          const ny = dy / distance
+          forces[i].x -= nx * push
+          forces[i].y -= ny * push
+          forces[j].x += nx * push
+          forces[j].y += ny * push
+        }
+      }
+
+      nodes.forEach((node, index) => {
+        const spring = 0.035
+        let candidateX = node.x + forces[index].x + (node.anchorX - node.x) * spring
+        let candidateY = node.y + forces[index].y + (node.anchorY - node.y) * spring
+        const offsetX = candidateX - node.anchorX
+        const offsetY = candidateY - node.anchorY
+        const displacement = Math.hypot(offsetX, offsetY)
+        if (displacement > maxDisplacement) {
+          candidateX = node.anchorX + offsetX / displacement * maxDisplacement
+          candidateY = node.anchorY + offsetY / displacement * maxDisplacement
+        }
+
+        const constrained = this.constrainProjectedPointToPolygon(
+          [candidateX, candidateY],
+          [node.anchorX, node.anchorY],
+          node.polygon,
+          node.radius
+        )
+        node.x = constrained[0]
+        node.y = constrained[1]
+      })
+
+      if (!overlaps) break
+    }
+
+    nodes.forEach(node => {
+      node.point.position.x = node.x
+      node.point.position.y = node.y
+      node.point.position.z += node.index % 3 * 0.025
+    })
+  }
+
+  isCircleInsidePolygon(center, radius, polygon) {
+    if (!polygon || !this.isPointInPolygons(center, [polygon])) return false
+    const samples = 12
+    for (let index = 0; index < samples; index += 1) {
+      const angle = index / samples * Math.PI * 2
+      const sample = [center[0] + Math.cos(angle) * radius, center[1] + Math.sin(angle) * radius]
+      if (!this.isPointInPolygons(sample, [polygon])) return false
+    }
+    return true
+  }
+
+  getPolygonInteriorTarget(polygon, fallback) {
+    const ring = polygon?.[0]
+    if (!Array.isArray(ring) || !ring.length) return fallback
+    const target = ring.reduce((sum, point) => [sum[0] + point[0], sum[1] + point[1]], [0, 0])
+    target[0] /= ring.length
+    target[1] /= ring.length
+    return this.isPointInPolygons(target, [polygon]) ? target : fallback
+  }
+
+  movePointInsidePolygon(point, polygon, radius) {
+    if (!polygon || this.isCircleInsidePolygon(point, radius, polygon)) return point
+    const target = this.getPolygonInteriorTarget(polygon, point)
+    for (let step = 1; step <= 24; step += 1) {
+      const ratio = step / 24
+      const candidate = [point[0] + (target[0] - point[0]) * ratio, point[1] + (target[1] - point[1]) * ratio]
+      if (this.isCircleInsidePolygon(candidate, radius, polygon)) return candidate
+    }
+    return point
+  }
+
+  constrainProjectedPointToPolygon(candidate, anchor, polygon, radius) {
+    if (!polygon) return anchor
+    if (this.isCircleInsidePolygon(candidate, radius, polygon)) return candidate
+    if (!this.isCircleInsidePolygon(anchor, radius, polygon)) return anchor
+
+    let inside = anchor
+    let outside = candidate
+    for (let index = 0; index < 18; index += 1) {
+      const middle = [(inside[0] + outside[0]) / 2, (inside[1] + outside[1]) / 2]
+      if (this.isCircleInsidePolygon(middle, radius, polygon)) inside = middle
+      else outside = middle
+    }
+    return inside
+  }
+
+  handleLayerPointClick(item, layer, event, lng, lat) {
+    this.consumeMapInteraction(event)
+    if (this._provinceFocusTransitioning) return
 
     if (this.drill?.focusProvinceOnly && !this.provinceFocusState) {
       const province = this.findProvinceByPoint(lng, lat)
       if (province?.userData) {
         this.focusProvince(province.userData)
-        this._provinceFocusClickGuardUntil = Date.now() + 450
       }
       return
     }
@@ -1942,6 +2312,7 @@ export class World extends Mini3d {
     this._rebuildLayersWithData()
   }
   _rebuildLayers() {
+    this.clearLayerPointInteractions()
     // 清除旧图层
     if (this._layerGroup) {
       this._layerGroup.clear()
@@ -1972,6 +2343,7 @@ export class World extends Mini3d {
   }
 
   _rebuildLayersWithData() {
+    this.clearLayerPointInteractions()
     // 清除旧图层
     if (this._layerGroup) {
       this._layerGroup.clear()
@@ -2076,22 +2448,32 @@ export class World extends Mini3d {
       sprite.userData.lat = lat
       sprite.userData.item = item
       sprite.userData.layerId = layer.id
+      sprite.userData.isMapPoint = true
       this._layerGroup.add(sprite)
 
       if (this.interactionManager) {
-        this.interactionManager.add(sprite)
-        sprite.cursor = 'pointer'
-        sprite.addEventListener('click', (event) => {
+        const hitMaterial = new SpriteMaterial({ transparent: true, opacity: 0.001, depthTest: false })
+        const hitTarget = new Sprite(hitMaterial)
+        hitTarget.scale.set(1.35, 1.35, 1.35)
+        hitTarget.renderOrder = 26
+        sprite.add(hitTarget)
+        sprite.userData.hitTarget = hitTarget
+        hitTarget.userData.mapPoint = sprite
+        this.interactionManager.add(hitTarget)
+        hitTarget.cursor = 'pointer'
+        hitTarget.addEventListener('mousedown', event => this.beginMapInteraction(event))
+        hitTarget.addEventListener('mouseup', () => this.endMapInteraction())
+        hitTarget.addEventListener('click', (event) => {
           this.handleLayerPointClick(item, layer, event, lng, lat)
         })
-        sprite.addEventListener('mouseover', (event) => {
+        hitTarget.addEventListener('mouseover', (event) => {
           if (typeof this.onPointHover === 'function') this.onPointHover(item, layer, event)
         })
-        sprite.addEventListener('mouseout', (event) => {
+        hitTarget.addEventListener('mouseout', (event) => {
           if (typeof this.onPointOut === 'function') this.onPointOut(item, layer, event)
         })
         if (!this._layerEventElements) this._layerEventElements = []
-        this._layerEventElements.push(sprite)
+        this._layerEventElements.push(hitTarget)
       }
 
       const labelVisible = s.labelVisible !== false
@@ -3450,6 +3832,13 @@ export class World extends Mini3d {
   // 销毁
   destroy() {
     super.destroy()
+
+    clearTimeout(this._mapInteractionReleaseTimer)
+
+    if (this.focusProvinceName?.style) {
+      this.focusProvinceName.style.display = 'none'
+      this.focusProvinceName.textContent = ''
+    }
 
     if (Array.isArray(this.strokePathLines) && this.strokePathLines.length) {
       this.strokePathLines.forEach(line => {

@@ -1,6 +1,7 @@
 <template>
   <div class="map-level" @click="handleMapLevelClick">
     <canvas ref="canvasRef" class="map-canvas"></canvas>
+    <div ref="focusProvinceNameRef" class="focus-province-name"></div>
     <div ref="returnBtnRef" class="return-btn" @click="goBack">返回上一级</div>
   </div>
 </template>
@@ -18,6 +19,7 @@ const props = defineProps({
 
 const canvasRef = ref(null)
 const returnBtnRef = ref(null)
+const focusProvinceNameRef = ref(null)
 const scene = computed(() => props.optionData.scene || {})
 const cameraPosition = computed(() => scene.value.camera.cameraPosition)
 const cameraLookAt = computed(() => scene.value.camera.cameraLookAt)
@@ -217,7 +219,10 @@ const worldConfig = computed(() => ({
   provinceNameOffset: provinceNameOffset.value,
   mapSource: mapSource.value,
   mapCode: mapCode.value,
-  dom: { returnBtn: returnBtnRef.value },
+  dom: {
+    returnBtn: returnBtnRef.value,
+    focusProvinceName: focusProvinceNameRef.value
+  },
   dataset: dataset.value,
   //是否下钻
   drill: scene.value.drill,
@@ -230,8 +235,8 @@ const goBack = () => {
   app && app.goBack()
 }
 
-const handleMapLevelClick = () => {
-  app && app.handleCanvasBlankClick && app.handleCanvasBlankClick()
+const handleMapLevelClick = event => {
+  app && app.handleCanvasBlankClick && app.handleCanvasBlankClick(event)
 }
 
 function createWorld(canvas,config) {
@@ -617,6 +622,48 @@ async function fetchAndSetLayers(layerList) {
     width: 100%;
     height: 100%;
     background: transparent;
+  }
+}
+
+.focus-province-name {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  z-index: 8;
+  display: none;
+  min-width: 180px;
+  padding: 5px 34px 7px;
+  transform: translateX(-50%);
+  color: #f2fdff;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 4px #07213b, 0 0 10px rgba(0, 231, 255, 0.9), 0 2px 3px #001225;
+  background: linear-gradient(90deg, transparent, rgba(0, 42, 87, 0.78) 18%, rgba(0, 42, 87, 0.78) 82%, transparent);
+
+  &::before,
+  &::after {
+    position: absolute;
+    top: 50%;
+    width: 42px;
+    height: 1px;
+    content: '';
+    background: linear-gradient(90deg, transparent, #38eaff);
+    box-shadow: 0 0 7px rgba(56, 234, 255, 0.8);
+  }
+
+  &::before {
+    left: -20px;
+  }
+
+  &::after {
+    right: -20px;
+    transform: rotate(180deg);
   }
 }
 
