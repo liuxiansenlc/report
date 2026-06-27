@@ -54,8 +54,8 @@
                   <span v-else class="q-no-file">-</span>
                 </div>
                 <div class="q-dl-item">
-                  <span class="q-dl-label">改良方案</span>
-                  <img v-if="currentPlan.planUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.planUrl, currentPlan.name + '_改良方案.pdf')" />
+                  <span class="q-dl-label">{{ getPlanLabel(currentPlan) }}</span>
+                  <img v-if="currentPlan.planUrl" src="../assets/images/下载按钮.png" class="q-icon-btn" @click="downloadFile(currentPlan.planUrl, getPlanDownloadName(currentPlan))" />
                   <span v-else class="q-no-file">-</span>
                 </div>
               </div>
@@ -465,6 +465,9 @@ const downloadFile = (url, name) => {
 
 const currentPlan = ref(null)
 
+const getPlanLabel = (plan) => plan?.planSource === 'AI' ? 'AI改良方案' : '改良方案'
+const getPlanDownloadName = (plan) => plan?.planFileName || `${plan?.name || '农场'}_${getPlanLabel(plan)}.pdf`
+
 const loadImprovementPlan = async (farm) => {
   if (!farm) return
   try {
@@ -482,7 +485,9 @@ const loadImprovementPlan = async (farm) => {
         date: '-',
         beforeUrl: '',
         afterUrl: '',
-        planUrl: ''
+        planUrl: '',
+        planSource: 'MANUAL',
+        planFileName: ''
       }
     }
   } catch (e) {

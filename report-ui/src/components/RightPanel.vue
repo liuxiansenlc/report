@@ -288,13 +288,8 @@ const loadOverview = async () => {
 // Echarts instances
 const chart1Ref = ref(null)
 const chart2Ref = ref(null)
-const riskFarmSource = ref([])
 const activeRiskDetail = ref(null)
-
-const riskChartRates = {
-  before: { low: 55, high: 25, strict: 20 },
-  after: { low: 65, high: 20, strict: 15 }
-}
+const riskDistribution = ref({ before: null, after: null })
 
 const riskLabelMap = {
   low: '低风险',
@@ -302,45 +297,58 @@ const riskLabelMap = {
   strict: '严管控'
 }
 
-const loadRiskFarmSource = async () => {
+const riskColorMap = {
+  low: '#00ffba',
+  high: '#ffd700',
+  strict: '#ff4500'
+}
+
+const emptyRiskStage = () => ({
+  total: 0,
+  low: { count: 0, rate: 0, farms: [] },
+  high: { count: 0, rate: 0, farms: [] },
+  strict: { count: 0, rate: 0, farms: [] }
+})
+
+const loadRiskDistribution = async () => {
   try {
-    const res = await fetch('/api/datasource/farm-info', {
+    const res = await fetch('/api/datasource/cadmium-risk-distribution', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
     })
     const json = await res.json()
-    if (json.code === 200 && Array.isArray(json.data)) {
-      riskFarmSource.value = json.data
-        .map(item => ({
-          farmCode: item.farmCode,
-          farmName: item.farmName || '未知农场',
-          farmArea: item.farmArea || 0
-        }))
-        .sort((a, b) => (parseFloat(b.farmArea) || 0) - (parseFloat(a.farmArea) || 0))
+    if (json.code === 200 && json.data) {
+      riskDistribution.value = {
+        before: json.data.before || emptyRiskStage(),
+        after: json.data.after || emptyRiskStage()
+      }
     }
   } catch (e) {
-    console.error('获取风险农场列表失败:', e)
+    console.error('获取镉风险分布失败:', e)
+    riskDistribution.value = { before: emptyRiskStage(), after: emptyRiskStage() }
   }
 }
 
 const getRiskFarms = (stageKey, riskKey) => {
-  const farms = riskFarmSource.value
-  if (!farms.length) return []
+  const stage = riskDistribution.value[stageKey] || emptyRiskStage()
+  return stage[riskKey]?.farms || []
+}
 
-  const rates = riskChartRates[stageKey] || riskChartRates.after
-  const lowCount = Math.max(0, Math.round(farms.length * rates.low / 100))
-  const highCount = Math.max(0, Math.round(farms.length * rates.high / 100))
-
-  if (riskKey === 'low') return farms.slice(0, lowCount)
-  if (riskKey === 'high') return farms.slice(lowCount, lowCount + highCount)
-  return farms.slice(lowCount + highCount)
+const getRiskChartData = (stageKey) => {
+  const stage = riskDistribution.value[stageKey] || emptyRiskStage()
+  return ['low', 'high', 'strict'].map(key => ({
+    value: Number(stage[key]?.rate || 0),
+    count: Number(stage[key]?.count || 0),
+    name: riskLabelMap[key],
+    riskKey: key,
+    itemStyle: { color: riskColorMap[key] }
+  }))
 }
 
 const showRiskDetail = (stageKey, stageLabel, params) => {
   const riskKey = params?.data?.riskKey
   if (!riskKey) return
-
   activeRiskDetail.value = {
     stage: stageLabel,
     risk: riskLabelMap[riskKey],
@@ -348,85 +356,67 @@ const showRiskDetail = (stageKey, stageLabel, params) => {
   }
 }
 
-onMounted(() => {
-  loadOverview()
-  loadRiskFarmSource()
-  const getPieOption = (data, centerText) => ({
-    backgroundColor: 'transparent',
-    series: [
-      {
-        type: 'pie',
-        radius: ['28%', '46%'],
-        center: ['50%', '50%'],
-        avoidLabelOverlap: true,
-        clockwise: false,
-        padAngle: 3,
-        label: {
-          show: true,
-          position: 'outside',
-          alignTo: 'edge',
-          edgeDistance: 4,
-          bleedMargin: 1,
-          distanceToLabelLine: 2,
-          formatter: '{c}%',
-          fontSize: 12,
-          fontWeight: 'bold',
-          color: '#fff',
-          textShadowColor: 'rgba(0, 0, 0, 0.8)',
-          textShadowBlur: 4,
-        },
-        labelLine: {
-          show: true,
-          length: 6,
-          length2: 10,
-          lineStyle: {
-            color: 'rgba(255, 255, 255, 0.75)',
-            width: 1
-          }
-        },
-        itemStyle: { borderWidth: 0 },
-        data: data.sort((a, b) => b.value - a.value) 
+const getPieOption = (data, centerText) => ({
+  backgroundColor: 'transparent',
+  tooltip: {
+    trigger: 'item',
+    formatter: params => `${params.name}<br/>占比：${params.data.value}%<br/>农场：${params.data.count}个`
+  },
+  series: [
+    {
+      type: 'pie',
+      radius: ['28%', '46%'],
+      center: ['50%', '50%'],
+      avoidLabelOverlap: true,
+      clockwise: false,
+      padAngle: 3,
+      label: {
+        show: true,
+        position: 'outside',
+        alignTo: 'edge',
+        edgeDistance: 4,
+        bleedMargin: 1,
+        distanceToLabelLine: 2,
+        formatter: params => `${params.data.value}%`,
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#fff',
+        textShadowColor: 'rgba(0, 0, 0, 0.8)',
+        textShadowBlur: 4,
       },
-      {
-        type: 'pie',
-        radius: ['0%', '0%'],
-        center: ['50%', '50%'],
-        silent: true,
-        label: {
-          show: true,
-          position: 'center',
-          formatter: centerText,
-          fontSize: 13,
-          color: '#fff',
-          fontWeight: 'bold',
-        },
-        data: [{ value: 1, itemStyle: { color: 'transparent' } }]
-      }
-    ]
-  })
+      labelLine: { show: true, length: 6, length2: 10, lineStyle: { color: 'rgba(255, 255, 255, 0.75)', width: 1 } },
+      itemStyle: { borderWidth: 0 },
+      data: data.slice().sort((a, b) => b.value - a.value)
+    },
+    {
+      type: 'pie',
+      radius: ['0%', '0%'],
+      center: ['50%', '50%'],
+      silent: true,
+      label: { show: true, position: 'center', formatter: centerText, fontSize: 13, color: '#fff', fontWeight: 'bold' },
+      data: [{ value: 1, itemStyle: { color: 'transparent' } }]
+    }
+  ]
+})
 
-  // 统一基础颜色：低风险 #00ffba, 高风险 #ffd700, 严管控 #ff4500
+const renderRiskCharts = () => {
   if (chart1Ref.value) {
     const chart1 = echarts.init(chart1Ref.value)
-    chart1.setOption(getPieOption([
-      { value: 55, name: '低风险', riskKey: 'low', itemStyle: { color: '#00ffba' } },
-      { value: 25, name: '高风险', riskKey: 'high', itemStyle: { color: '#ffd700' } },
-      { value: 20, name: '严管控', riskKey: 'strict', itemStyle: { color: '#ff4500' } }
-    ], '改良前'))
+    chart1.setOption(getPieOption(getRiskChartData('before'), '改良前'))
     chart1.on('click', params => showRiskDetail('before', '改良前', params))
   }
-
   if (chart2Ref.value) {
     const chart2 = echarts.init(chart2Ref.value)
-    chart2.setOption(getPieOption([
-      { value: 65, name: '低风险', riskKey: 'low', itemStyle: { color: '#00ffba' } },
-      { value: 20, name: '高风险', riskKey: 'high', itemStyle: { color: '#ffd700' } },
-      { value: 15, name: '严管控', riskKey: 'strict', itemStyle: { color: '#ff4500' } }
-    ], '改良后'))
+    chart2.setOption(getPieOption(getRiskChartData('after'), '改良后'))
     chart2.on('click', params => showRiskDetail('after', '改良后', params))
   }
-})
-</script>
+}
+
+onMounted(async () => {
+  loadOverview()
+  await loadRiskDistribution()
+  renderRiskCharts()
+})</script>
 
 <style scoped>
 .right-panel {

@@ -291,53 +291,11 @@ public class DatasourceController {
             return Result.success(result);
         }
 
-        double ph = phDecimal.doubleValue();
-        double cd = cadmiumDecimal.doubleValue();
-
-        result.put("ph", ph);
-        result.put("cadmium", cd);
-
-        // 4. Determine risk based strictly on user-provided rules
-        String riskLevel = "低风险";
-        if ("旱地".equals(landUseType)) {
-            if (ph <= 5.5) {
-                if (cd >= 1.5) riskLevel = "高风险";
-                else if (cd >= 0.3) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            } else if (ph > 5.5 && ph <= 6.5) {
-                if (cd >= 2.0) riskLevel = "高风险";
-                else if (cd >= 0.3) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            } else if (ph > 5.5 && ph <= 7.5) { // Mathematically equivalent to 6.5 < ph <= 7.5 due to else-if
-                if (cd >= 3.0) riskLevel = "高风险";
-                else if (cd >= 0.3) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            } else if (ph > 7.5) {
-                if (cd >= 4.0) riskLevel = "高风险";
-                else if (cd >= 0.3) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            }
-        } else if ("水田".equals(landUseType)) {
-            if (ph <= 5.5) {
-                if (cd >= 1.5) riskLevel = "高风险";
-                else if (cd >= 0.3) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            } else if (ph > 5.5 && ph <= 6.5) {
-                if (cd >= 2.0) riskLevel = "高风险";
-                else if (cd >= 0.43) riskLevel = "中风险"; // Based on user table
-                else riskLevel = "低风险";
-            } else if (ph > 5.5 && ph <= 7.5) {
-                if (cd >= 3.0) riskLevel = "高风险";
-                else if (cd >= 0.6) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            } else if (ph > 7.5) {
-                if (cd >= 4.0) riskLevel = "高风险";
-                else if (cd >= 0.8) riskLevel = "中风险";
-                else riskLevel = "低风险";
-            }
-        }
-        
-        result.put("riskLevel", riskLevel);
+        result.put("ph", phDecimal.doubleValue());
+        result.put("cadmium", cadmiumDecimal.doubleValue());
+        String riskKey = classifyCadmiumRiskKey(landUseType, phDecimal, cadmiumDecimal);
+        result.put("riskKey", riskKey);
+        result.put("riskLevel", cadmiumRiskLabel(riskKey));
         return Result.success(result);
     }
 
@@ -569,12 +527,53 @@ public class DatasourceController {
                 return m;
             });
             
-            if ("改良前检测报告".equals(report.getReportType())) card.put("beforeUrl", report.getFileUrl());
-            else if ("改良后检测报告".equals(report.getReportType())) card.put("afterUrl", report.getFileUrl());
-            else if ("改良方案".equals(report.getReportType())) card.put("planUrl", report.getFileUrl());
+            if ("改良前检测报告".equals(report.getReportType()) && !card.containsKey("beforeUrl")) {
+                card.put("beforeUrl", report.getFileUrl());
+            } else if ("改良后检测报告".equals(report.getReportType()) && !card.containsKey("afterUrl")) {
+                card.put("afterUrl", report.getFileUrl());
+            } else if ("改良方案".equals(report.getReportType())) {
+                boolean reportVisible = report.getFrontendVisible() == null || report.getFrontendVisible() == 1;
+                boolean currentVisible = Boolean.TRUE.equals(card.get("planFrontendVisible"));
+                if (!card.containsKey("planUrl") || (reportVisible && !currentVisible)) {
+                    card.put("planUrl", report.getFileUrl());
+                    card.put("planFileName", report.getFileName());
+                    card.put("planSource", StringUtils.hasText(report.getReportSource()) ? report.getReportSource() : "MANUAL");
+                    card.put("planFrontendVisible", reportVisible);
+                }
+            }
         }
 
         return Result.success(new ArrayList<>(farmGroup.values()));
+    }
+
+    @PostMapping("/cadmium-risk-distribution")
+    public Result<Map<String, Object>> getCadmiumRiskDistribution(@RequestBody(required = false) Map<String, Object> params) {
+        List<FarmInfo> farms = farmInfoMapper.selectList(new QueryWrapper<FarmInfo>());
+        Map<String, FarmInfo> farmMap = farms.stream()
+                .filter(f -> StringUtils.hasText(f.getFarmCode()))
+                .collect(Collectors.toMap(FarmInfo::getFarmCode, f -> f, (a, b) -> a, LinkedHashMap::new));
+
+        Map<String, String> cropLandUseMap = cropPhStandardMapper.selectList(new QueryWrapper<CropPhStandard>())
+                .stream()
+                .filter(c -> StringUtils.hasText(c.getCropName()))
+                .collect(Collectors.toMap(CropPhStandard::getCropName, c -> c.getLandUseType(), (a, b) -> a));
+
+        QueryWrapper<SoilTestData> qw = new QueryWrapper<>();
+        qw.isNotNull("farm_code").isNotNull("type").isNotNull("ph").isNotNull("cadmium");
+        qw.orderByDesc("created_at").orderByDesc("id");
+        List<SoilTestData> soils = soilTestDataMapper.selectList(qw);
+
+        Map<String, SoilTestData> latest = new LinkedHashMap<>();
+        for (SoilTestData soil : soils) {
+            String stage = stageKey(soil.getType());
+            if (stage == null || !farmMap.containsKey(soil.getFarmCode())) continue;
+            latest.putIfAbsent(stage + ":" + soil.getFarmCode(), soil);
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("before", buildCadmiumRiskStage("before", latest, farmMap, cropLandUseMap));
+        data.put("after", buildCadmiumRiskStage("after", latest, farmMap, cropLandUseMap));
+        return Result.success(data);
     }
 
     @GetMapping("/service-stations")
@@ -619,6 +618,79 @@ public class DatasourceController {
             } catch (NumberFormatException ignored) {}
         }
         return Result.success(result);
+    }
+
+    private Map<String, Object> buildCadmiumRiskStage(String stage, Map<String, SoilTestData> latest,
+                                                       Map<String, FarmInfo> farmMap, Map<String, String> cropLandUseMap) {
+        Map<String, List<Map<String, Object>>> groups = new LinkedHashMap<>();
+        groups.put("low", new ArrayList<>());
+        groups.put("high", new ArrayList<>());
+        groups.put("strict", new ArrayList<>());
+
+        for (FarmInfo farm : farmMap.values()) {
+            SoilTestData soil = latest.get(stage + ":" + farm.getFarmCode());
+            if (soil == null || soil.getPh() == null || soil.getCadmium() == null) continue;
+            String landUseType = cropLandUseMap.get(farm.getCropVariety());
+            String riskKey = classifyCadmiumRiskKey(landUseType, soil.getPh(), soil.getCadmium());
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("farmCode", farm.getFarmCode());
+            item.put("farmName", farm.getFarmName());
+            item.put("farmArea", farm.getFarmArea());
+            item.put("cropVariety", farm.getCropVariety());
+            item.put("landUseType", landUseType);
+            item.put("ph", soil.getPh());
+            item.put("cadmium", soil.getCadmium());
+            item.put("riskKey", riskKey);
+            item.put("riskLevel", cadmiumRiskLabel(riskKey));
+            groups.get(riskKey).add(item);
+        }
+
+        int total = groups.values().stream().mapToInt(List::size).sum();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("total", total);
+        for (Map.Entry<String, List<Map<String, Object>>> entry : groups.entrySet()) {
+            Map<String, Object> group = new LinkedHashMap<>();
+            int count = entry.getValue().size();
+            group.put("count", count);
+            group.put("rate", total == 0 ? 0 : Math.round(count * 1000.0 / total) / 10.0);
+            group.put("farms", entry.getValue());
+            result.put(entry.getKey(), group);
+        }
+        return result;
+    }
+
+    private String stageKey(String type) {
+        if (!StringUtils.hasText(type)) return null;
+        if (type.contains("前")) return "before";
+        if (type.contains("后")) return "after";
+        return null;
+    }
+
+    private String classifyCadmiumRiskKey(String landUseType, BigDecimal ph, BigDecimal cadmium) {
+        if (ph == null || cadmium == null) return "low";
+        double p = ph.doubleValue();
+        BigDecimal strictLine = p <= 5.5 ? new BigDecimal("1.5")
+                : p <= 6.5 ? new BigDecimal("2.0")
+                : p <= 7.5 ? new BigDecimal("3.0")
+                : new BigDecimal("4.0");
+        BigDecimal highLine;
+        if ("水田".equals(landUseType)) {
+            highLine = p <= 5.5 ? new BigDecimal("0.3")
+                    : p <= 6.5 ? new BigDecimal("0.43")
+                    : p <= 7.5 ? new BigDecimal("0.6")
+                    : new BigDecimal("0.8");
+        } else {
+            highLine = new BigDecimal("0.3");
+        }
+        if (cadmium.compareTo(strictLine) >= 0) return "strict";
+        if (cadmium.compareTo(highLine) >= 0) return "high";
+        return "low";
+    }
+
+    private String cadmiumRiskLabel(String riskKey) {
+        if ("strict".equals(riskKey)) return "严管控";
+        if ("high".equals(riskKey)) return "高风险";
+        return "低风险";
     }
 }
 

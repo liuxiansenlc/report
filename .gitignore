@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.tools/
 
 # Build outputs
 dist/
@@ -33,4 +34,5 @@ Thumbs.db
 
 # Runtime uploads and local backups
 uploads/
+report-backend/data/
 备份/

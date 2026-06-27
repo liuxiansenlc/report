@@ -344,7 +344,9 @@ const downloadFile = (url, name) => {
 const downloadPlanStageFile = (item) => {
   const meta = activePlanStageMeta.value
   if (!meta || !item?.[meta.urlField]) return
-  downloadFile(item[meta.urlField], `${item.name}_${meta.fileLabel}.pdf`)
+  const label = activePlanStage.value === 'plan' && item.planSource === 'AI' ? 'AI改良方案' : meta.fileLabel
+  const filename = activePlanStage.value === 'plan' && item.planFileName ? item.planFileName : `${item.name}_${label}.pdf`
+  downloadFile(item[meta.urlField], filename)
 }
 
 const loadImprovementPlans = async () => {
@@ -361,7 +363,9 @@ const loadImprovementPlans = async () => {
         date: item.date,
         beforeUrl: item.beforeUrl,
         afterUrl: item.afterUrl,
-        planUrl: item.planUrl
+        planUrl: item.planUrl,
+        planSource: item.planSource || 'MANUAL',
+        planFileName: item.planFileName || ''
       }))
     }
   } catch (e) {

@@ -27,6 +27,10 @@ public class TestReport {
 
     private String fileName;
 
+    private String reportSource;
+
+    private Integer frontendVisible;
+
     @TableField(fill = FieldFill.INSERT)
     private Date createdAt;
     
