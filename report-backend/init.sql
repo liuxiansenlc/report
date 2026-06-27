@@ -171,6 +171,23 @@ CREATE TABLE IF NOT EXISTS `test_report` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='检测报告库';
 
+CREATE TABLE IF NOT EXISTS `dashboard_font_config` (
+  `id` BIGINT PRIMARY KEY,
+  `global_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `header_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `left_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `center_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `right_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `analysis_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `chart_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `overlay_scale` DECIMAL(5,2) DEFAULT 1.00,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='大屏字体配置';
+
+REPLACE INTO `dashboard_font_config` (`id`, `global_scale`, `header_scale`, `left_scale`, `center_scale`, `right_scale`, `analysis_scale`, `chart_scale`, `overlay_scale`) VALUES
+(1, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00);
+
 -- Online production data snapshot exported on 2026-06-11.
 -- REPLACE keeps this initialization script repeatable while preserving the exported primary keys.
 SET NAMES utf8mb4;

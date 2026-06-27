@@ -19,6 +19,12 @@ const routes = [
         meta: { title: '检测报告' }
       },
       {
+        path: 'dashboard-font',
+        name: 'DashboardFont',
+        component: () => import('@/views/DashboardFont.vue'),
+        meta: { title: 'Dashboard Font' }
+      },
+      {
         path: 'welcome',
         name: 'Welcome',
         component: () => import('@/views/Welcome.vue')

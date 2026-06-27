@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Date;
 
 @RestController
 @RequestMapping("")
@@ -56,6 +57,16 @@ public class AuthController {
         QueryWrapper<Category> query = new QueryWrapper<>();
         query.orderByAsc("sort_order");
         List<Category> categories = categoryMapper.selectList(query);
+        boolean hasDashboardFont = categories.stream().anyMatch(c -> "/dashboard-font".equals(c.getPath()));
+        if (!hasDashboardFont) {
+            Category category = new Category();
+            category.setId(999L);
+            category.setName("大屏字体设置");
+            category.setPath("/dashboard-font");
+            category.setSortOrder(99);
+            category.setCreatedAt(new Date());
+            categories.add(category);
+        }
         return Result.success(categories);
     }
     

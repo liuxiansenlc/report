@@ -11,8 +11,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import Header from './components/Header.vue'
+import { initDashboardFont, stopDashboardFont } from './utils/dashboardFont'
 
 const width = 1920
 const height = 1080
@@ -27,10 +28,12 @@ const updateScale = () => {
 onMounted(() => {
   updateScale()
   window.addEventListener('resize', updateScale)
+  nextTick(initDashboardFont)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateScale)
+  stopDashboardFont()
 })
 
 const scaleStyle = computed(() => ({

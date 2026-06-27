@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="right-panel">
     <!-- 顶部下拉选择器 -->
     <div class="custom-select" @click="toggleDropdown">
@@ -195,8 +195,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import * as echarts from 'echarts'
+import { dashboardFontSize } from '../utils/dashboardFont'
 
 const isOpen = ref(false)
 const selectedValue = ref('')
@@ -378,7 +379,7 @@ const getPieOption = (data, centerText) => ({
         bleedMargin: 1,
         distanceToLabelLine: 2,
         formatter: params => `${params.data.value}%`,
-        fontSize: 12,
+        fontSize: dashboardFontSize(12, 'chartScale'),
         fontWeight: 'bold',
         color: '#fff',
         textShadowColor: 'rgba(0, 0, 0, 0.8)',
@@ -393,7 +394,7 @@ const getPieOption = (data, centerText) => ({
       radius: ['0%', '0%'],
       center: ['50%', '50%'],
       silent: true,
-      label: { show: true, position: 'center', formatter: centerText, fontSize: 13, color: '#fff', fontWeight: 'bold' },
+      label: { show: true, position: 'center', formatter: centerText, fontSize: dashboardFontSize(13, 'chartScale'), color: '#fff', fontWeight: 'bold' },
       data: [{ value: 1, itemStyle: { color: 'transparent' } }]
     }
   ]
@@ -401,13 +402,15 @@ const getPieOption = (data, centerText) => ({
 
 const renderRiskCharts = () => {
   if (chart1Ref.value) {
-    const chart1 = echarts.init(chart1Ref.value)
+    const chart1 = echarts.getInstanceByDom(chart1Ref.value) || echarts.init(chart1Ref.value)
     chart1.setOption(getPieOption(getRiskChartData('before'), '改良前'))
+    chart1.off('click')
     chart1.on('click', params => showRiskDetail('before', '改良前', params))
   }
   if (chart2Ref.value) {
-    const chart2 = echarts.init(chart2Ref.value)
+    const chart2 = echarts.getInstanceByDom(chart2Ref.value) || echarts.init(chart2Ref.value)
     chart2.setOption(getPieOption(getRiskChartData('after'), '改良后'))
+    chart2.off('click')
     chart2.on('click', params => showRiskDetail('after', '改良后', params))
   }
 }
@@ -416,6 +419,11 @@ onMounted(async () => {
   loadOverview()
   await loadRiskDistribution()
   renderRiskCharts()
+  window.addEventListener('dashboard-font-change', renderRiskCharts)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('dashboard-font-change', renderRiskCharts)
 })</script>
 
 <style scoped>

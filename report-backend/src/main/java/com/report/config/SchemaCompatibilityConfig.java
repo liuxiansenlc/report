@@ -23,6 +23,21 @@ public class SchemaCompatibilityConfig {
             }
             jdbcTemplate.update("UPDATE test_report SET report_source = 'MANUAL' WHERE report_source IS NULL OR report_source = ''");
             jdbcTemplate.update("UPDATE test_report SET frontend_visible = 1 WHERE frontend_visible IS NULL");
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS dashboard_font_config (" +
+                    "id BIGINT PRIMARY KEY, " +
+                    "global_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "header_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "left_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "center_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "right_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "analysis_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "chart_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "overlay_scale DECIMAL(5,2) DEFAULT 1.00, " +
+                    "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+            jdbcTemplate.update("INSERT INTO dashboard_font_config " +
+                    "(id, global_scale, header_scale, left_scale, center_scale, right_scale, analysis_scale, chart_scale, overlay_scale) " +
+                    "SELECT 1, 1, 1, 1, 1, 1, 1, 1, 1 WHERE NOT EXISTS (SELECT 1 FROM dashboard_font_config WHERE id = 1)");
         };
     }
 

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="dashboard-body">
     <div class="side-panel left-panel-wrapper">
 
@@ -362,8 +362,18 @@
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
+import { dashboardFontSize } from '../utils/dashboardFont'
 
 const route = useRoute()
+
+const refreshDashboardCharts = () => {
+  chartPhInstance?.resize()
+  chartNpkInstance?.resize()
+  if (selectedFarm.value) {
+    loadPhMatch(selectedFarm.value, selectedCrop.value)
+    loadNpkElements(selectedFarm.value)
+  }
+}
 
 // AI Chat Logic
 const isChatOpen = ref(false)
@@ -1012,6 +1022,7 @@ const closeDropdowns = (e) => {
 
 onMounted(() => {
   window.addEventListener('click', closeDropdowns)
+  window.addEventListener('dashboard-font-change', refreshDashboardCharts)
   loadFarmList()
   
   if (chartPhRef.value) {
@@ -1029,13 +1040,13 @@ onMounted(() => {
       title: [
         {
           text: '耕地土壤农作物种植酸碱匹配度',
-          textStyle: { color: '#fff', fontSize: 16, fontWeight: 'bold', fontStyle: 'italic', textShadowColor: '#00a2ff', textShadowBlur: 5 },
+          textStyle: { color: '#fff', fontSize: dashboardFontSize(16, 'chartScale'), fontWeight: 'bold', fontStyle: 'italic', textShadowColor: '#00a2ff', textShadowBlur: 5 },
           left: '10',
           top: '10'
         },
         {
           text: 'PH',
-          textStyle: { color: '#fff', fontSize: 12, fontWeight: 'normal' },
+          textStyle: { color: '#fff', fontSize: dashboardFontSize(12, 'chartScale'), fontWeight: 'normal' },
           left: '20',
           top: '40'
         }
@@ -1044,7 +1055,7 @@ onMounted(() => {
         data: ['改良前', '改良后'],
         right: '20',
         top: '40',
-        textStyle: { color: '#a0c4e0', fontSize: 12 },
+        textStyle: { color: '#a0c4e0', fontSize: dashboardFontSize(12, 'chartScale') },
         itemWidth: 12,
         itemHeight: 4,
         icon: 'rect'
@@ -1060,7 +1071,7 @@ onMounted(() => {
         data: xAxisData,
         axisLine: { show: true, lineStyle: { color: '#1f4886' } },
         axisTick: { show: false },
-        axisLabel: { color: '#cce8ff', fontSize: 13, margin: 12 }
+        axisLabel: { color: '#cce8ff', fontSize: dashboardFontSize(13, 'chartScale'), margin: 12 }
       },
       yAxis: {
         min: 0,
@@ -1068,7 +1079,7 @@ onMounted(() => {
         splitNumber: 4,
         axisLine: { show: true, lineStyle: { color: '#1f4886' } },
         axisLabel: { 
-          color: '#cce8ff', fontSize: 14, margin: 15,
+          color: '#cce8ff', fontSize: dashboardFontSize(14, 'chartScale'), margin: 15,
           formatter: function(val) { return val + 4; }
         },
         splitLine: { show: true, lineStyle: { color: 'rgba(31, 72, 134, 0.6)', type: 'dashed' } }
@@ -1100,7 +1111,7 @@ onMounted(() => {
               value: {
                 color: '#ffd700',
                 fontWeight: 'bold',
-                fontSize: 14,
+                fontSize: dashboardFontSize(14, 'chartScale'),
                 align: 'center',
                 padding: [0, 0, 4, 0]
               },
@@ -1144,7 +1155,7 @@ onMounted(() => {
               value: {
                 color: '#00ffff',
                 fontWeight: 'bold',
-                fontSize: 14,
+                fontSize: dashboardFontSize(14, 'chartScale'),
                 align: 'center',
                 padding: [0, 0, 4, 0]
               },
@@ -1302,14 +1313,14 @@ onMounted(() => {
         type: 'category',
         data: ['改良前', '改良后'],
         axisLine: { lineStyle: { color: '#1f4886' } },
-        axisLabel: { color: '#cce8ff', fontSize: 13, margin: 15 },
+        axisLabel: { color: '#cce8ff', fontSize: dashboardFontSize(13, 'chartScale'), margin: 15 },
         axisTick: { show: false }
       },
       yAxis: {
         type: 'value',
         max: 500,
         splitLine: { lineStyle: { color: 'rgba(31, 72, 134, 0.4)', type: 'dashed' } },
-        axisLabel: { color: '#cce8ff', fontSize: 12 }
+        axisLabel: { color: '#cce8ff', fontSize: dashboardFontSize(12, 'chartScale') }
       },
       series: [
         {
@@ -1326,7 +1337,7 @@ onMounted(() => {
             ])
           },
           label: {
-            show: true, position: 'right', formatter: ' ◀ {c}', color: '#1e78ff', fontSize: 11
+            show: true, position: 'right', formatter: ' ◀ {c}', color: '#1e78ff', fontSize: dashboardFontSize(11, 'chartScale')
           },
           data: [100, 62]
         },
@@ -1343,7 +1354,7 @@ onMounted(() => {
             ])
           },
           label: {
-            show: true, position: 'right', formatter: ' ◀ {c}', color: '#00c8c8', fontSize: 11
+            show: true, position: 'right', formatter: ' ◀ {c}', color: '#00c8c8', fontSize: dashboardFontSize(11, 'chartScale')
           },
           data: [163, 148]
         },
@@ -1360,7 +1371,7 @@ onMounted(() => {
             ])
           },
           label: {
-            show: true, position: 'right', formatter: ' ◀ {c}', color: '#ffcc00', fontSize: 11
+            show: true, position: 'right', formatter: ' ◀ {c}', color: '#ffcc00', fontSize: dashboardFontSize(11, 'chartScale')
           },
           data: [123, 134]
         },
@@ -1434,6 +1445,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('click', closeDropdowns)
+  window.removeEventListener('dashboard-font-change', refreshDashboardCharts)
   if (bioLoopTimer) clearInterval(bioLoopTimer)
 })
 </script>

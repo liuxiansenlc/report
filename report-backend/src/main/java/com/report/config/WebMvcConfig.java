@@ -32,6 +32,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
                     "/login",
                     "/uploads/**",
                     "/datasource/**",
+                    "/dashboard-font-config",
                     "/ai/**",
                     "/error"
                 );
